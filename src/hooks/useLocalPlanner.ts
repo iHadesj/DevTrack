@@ -6,6 +6,7 @@ import {
     type PlannerInput,
     type StudyPlan,
 } from "../services/plannerIntelligence";
+import { requestRemotePlanText } from "../services/remotePlanner";
 
 /** Reexporta os contratos para preservar os imports existentes dos componentes. */
 export type {
@@ -27,8 +28,13 @@ export type PlannerState =
     | "unavailable"
     | "error";
 
-/** Como o plano foi produzido: pelo modelo baixado ou pelas regras locais do service. */
-export type PlannerMode = "ai" | "local";
+/**
+ * Quem produziu o plano:
+ * - `ai`    modelo baixado, rodando dentro do aparelho e sem enviar nada;
+ * - `cloud` IA remota chamada pela função serverless, exige internet;
+ * - `local` regras determinísticas do próprio DevTrack, sempre disponíveis.
+ */
+export type PlannerMode = "ai" | "cloud" | "local";
 
 /** Tipos mínimos do WebGPU; o projeto não depende do pacote @webgpu/types. */
 type MinimalGpuAdapter = { features: { has(feature: string): boolean } };
@@ -59,12 +65,10 @@ const IS_APPLE_MOBILE = detectAppleMobile();
 /** O download só é liberado quando existe WebGPU e o aparelho aguenta o modelo. */
 const CAN_RUN_MODEL = HAS_WEBGPU && !IS_APPLE_MOBILE;
 
-/** Explica em uma frase por que o plano saiu sem o modelo. */
-const LOCAL_MODE_REASON = IS_APPLE_MOBILE
-    ? "iPhone e iPad encerram a página ao carregar o modelo, então o DevTrack planeja pelas regras locais."
-    : HAS_WEBGPU
-        ? "O modelo não pôde ser carregado aqui, então o DevTrack planeja pelas regras locais."
-        : "Este navegador não oferece WebGPU, então o DevTrack planeja pelas regras locais.";
+/** Explica em uma frase por que o modelo local está fora deste aparelho. */
+const NO_LOCAL_MODEL_REASON = IS_APPLE_MOBILE
+    ? "iPhone e iPad encerram a página ao carregar o modelo local."
+    : "Este navegador não oferece WebGPU para rodar o modelo local.";
 
 /**
  * Confirma que a GPU aceita o modelo antes de baixar centenas de megabytes.
@@ -84,17 +88,18 @@ async function assertGpuSupportsModel(): Promise<void> {
 }
 
 /**
- * Carrega e usa uma única instância do WebLLM quando o aparelho permite. Em
- * qualquer outro caso o plano sai pelo service, que já funciona sem modelo algum.
+ * Planeja em três degraus, sempre nesta ordem: modelo local, IA na nuvem e regras
+ * determinísticas. Cada degrau só é tentado quando o anterior não pôde responder,
+ * então a pessoa nunca fica sem plano — muda apenas quem o escreveu.
  */
 export function useLocalPlanner() {
     const engineRef = useRef<MLCEngine | null>(null);
     const [state, setState] = useState<PlannerState>("idle");
-    const [mode, setMode] = useState<PlannerMode>(CAN_RUN_MODEL ? "ai" : "local");
+    const [mode, setMode] = useState<PlannerMode>(CAN_RUN_MODEL ? "ai" : "cloud");
     const [status, setStatus] = useState(
         CAN_RUN_MODEL
             ? "Se o assistente ainda não foi baixado, o primeiro uso precisa de internet."
-            : LOCAL_MODE_REASON,
+            : `${NO_LOCAL_MODEL_REASON} Com internet, o plano vem da IA na nuvem.`,
     );
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [generationProgress, setGenerationProgress] = useState(0);
@@ -103,31 +108,11 @@ export function useLocalPlanner() {
     /** Mantido no retorno para não quebrar os componentes que já consultam a flag. */
     const isSupported = CAN_RUN_MODEL;
 
-    /** Fecha o ciclo com um plano válido sempre que o modelo não puder participar. */
-    const buildLocalPlan = useCallback(
-        (input: PlannerInput, reason: string): StudyPlan => {
-            setMode("local");
-            setError(null);
-            setGenerationProgress(100);
-            setState("ready");
-            setStatus(`${reason} Confira antes de salvar.`);
-
-            /** Texto vazio faz o service usar apenas o plano determinístico. */
-            return createResilientPlan("", input);
-        },
-        [],
-    );
-
     /** Baixa ou recupera o modelo do cache e preserva o motor em memória. */
     const getEngine = useCallback(async (): Promise<MLCEngine> => {
-        if (!CAN_RUN_MODEL) {
-            setState("unavailable");
-            throw new Error(LOCAL_MODE_REASON);
-        }
-
+        if (!CAN_RUN_MODEL) throw new Error(NO_LOCAL_MODEL_REASON);
         if (engineRef.current) return engineRef.current;
 
-        setError(null);
         setState("downloading");
         setDownloadProgress(0);
         setStatus("Conferindo se esta GPU aceita o modelo...");
@@ -156,113 +141,160 @@ export function useLocalPlanner() {
 
         engineRef.current = engine;
         setDownloadProgress(100);
-        setMode("ai");
-        setState("ready");
         setStatus("Assistente local pronto. Seus pedidos não saem do aparelho.");
         return engine;
     }, []);
 
+    /** Primeiro degrau: gera o texto cru dentro do aparelho, sem rede. */
+    const runLocalModel = useCallback(
+        async (input: PlannerInput): Promise<string> => {
+            const engine = await getEngine();
+
+            setState("generating");
+            setGenerationProgress(4);
+            setStatus("Interpretando intenção, assunto e requisitos...");
+
+            const chunks = await engine.chat.completions.create({
+                messages: [
+                    {
+                        role: "system",
+                        content:
+                            "Você é um planejador geral. Responda exclusivamente em português brasileiro e em JSON, sem presumir que o assunto seja tecnologia.",
+                    },
+                    { role: "user", content: createPlannerPrompt(input) },
+                ],
+                /** Baixa aleatoriedade ajuda um modelo pequeno a seguir o contrato. */
+                temperature: 0.1,
+                repetition_penalty: 1.05,
+                /** Quatro etapas detalhadas cabem sem prolongar demais a geração. */
+                max_tokens: 800,
+                /** Evita gastar tempo com tokens internos invisíveis do Qwen3. */
+                extra_body: { enable_thinking: false },
+                stream: true,
+            });
+
+            let content = "";
+
+            /**
+             * Se o dispositivo for lento, a geração é interrompida após um minuto.
+             * O que já saiu ainda é aproveitado pela validação do service.
+             */
+            const generationTimeout = window.setTimeout(() => {
+                setStatus("Finalizando com a validação local do DevTrack...");
+                void engine.interruptGenerate().catch(() => undefined);
+            }, 60_000);
+
+            try {
+                for await (const chunk of chunks) {
+                    content += chunk.choices[0]?.delta.content ?? "";
+
+                    /** Como o total é desconhecido, 100% fica reservado à validação. */
+                    const estimatedProgress = Math.min(
+                        94,
+                        8 + Math.round(content.length / 25),
+                    );
+                    setGenerationProgress(estimatedProgress);
+
+                    if (estimatedProgress < 30) {
+                        setStatus("Separando objetivo e requisitos...");
+                    } else if (estimatedProgress < 65) {
+                        setStatus("Montando etapas e critérios de conclusão...");
+                    } else {
+                        setStatus("Removendo repetições e conferindo o contexto...");
+                    }
+                }
+            } finally {
+                window.clearTimeout(generationTimeout);
+            }
+
+            return content;
+        },
+        [getEngine],
+    );
+
+    /** Segundo degrau: a função serverless fala com a IA remota e devolve o texto. */
+    const runCloudModel = useCallback(
+        async (input: PlannerInput): Promise<string> => {
+            if (!navigator.onLine) {
+                throw new Error("Sem internet para consultar a IA na nuvem.");
+            }
+
+            setState("generating");
+            setGenerationProgress(35);
+            setStatus("Consultando a IA na nuvem...");
+
+            const text = await requestRemotePlanText(input);
+
+            setGenerationProgress(94);
+            return text;
+        },
+        [],
+    );
+
     /**
-     * Gera o plano e nunca deixa a pessoa sem resposta: se o motor não existe,
-     * não carrega ou falha no meio, o planejamento determinístico assume.
+     * Orquestra os degraus e encerra sempre em um plano válido. O `mode` conta
+     * à interface quem realmente escreveu o resultado exibido.
      */
     const createPlan = useCallback(
         async (input: PlannerInput): Promise<StudyPlan> => {
-            if (!CAN_RUN_MODEL) return buildLocalPlan(input, LOCAL_MODE_REASON);
+            setError(null);
+            setGenerationProgress(0);
 
-            let engine: MLCEngine;
+            /** Guarda o motivo de cada degrau recusado para explicar o desfecho. */
+            const skippedReasons: string[] = [];
 
-            try {
-                engine = await getEngine();
-            } catch (caughtError) {
-                const detail =
-                    caughtError instanceof Error
-                        ? caughtError.message
-                        : "Motor indisponível.";
-                return buildLocalPlan(input, `Assistente não carregou (${detail}).`);
+            if (CAN_RUN_MODEL) {
+                try {
+                    const content = await runLocalModel(input);
+
+                    if (content.trim()) {
+                        const plan = createResilientPlan(content, input);
+                        setMode("ai");
+                        setGenerationProgress(100);
+                        setState("ready");
+                        setStatus("Plano criado no seu aparelho. Confira antes de salvar.");
+                        return plan;
+                    }
+
+                    skippedReasons.push("o modelo local não produziu texto");
+                } catch (caughtError) {
+                    skippedReasons.push(
+                        caughtError instanceof Error
+                            ? caughtError.message
+                            : "o modelo local falhou",
+                    );
+                }
+            } else {
+                skippedReasons.push(NO_LOCAL_MODEL_REASON);
             }
 
             try {
-                setError(null);
-                setState("generating");
-                setGenerationProgress(4);
-                setStatus("Interpretando intenção, assunto e requisitos...");
-
-                const chunks = await engine.chat.completions.create({
-                    messages: [
-                        {
-                            role: "system",
-                            content:
-                                "Você é um planejador geral. Responda exclusivamente em português brasileiro e em JSON, sem presumir que o assunto seja tecnologia.",
-                        },
-                        { role: "user", content: createPlannerPrompt(input) },
-                    ],
-                    /** Baixa aleatoriedade ajuda um modelo pequeno a seguir o contrato. */
-                    temperature: 0.1,
-                    repetition_penalty: 1.05,
-                    /** Quatro etapas detalhadas cabem sem prolongar demais a geração. */
-                    max_tokens: 800,
-                    /** Evita gastar tempo com tokens internos invisíveis do Qwen3. */
-                    extra_body: { enable_thinking: false },
-                    stream: true,
-                });
-
-                let content = "";
-                let reachedTimeLimit = false;
-
-                /**
-                 * Se o dispositivo for lento, o plano local assume após um minuto.
-                 * O modelo continua sendo útil, mas nunca vira um bloqueio infinito.
-                 */
-                const generationTimeout = window.setTimeout(() => {
-                    reachedTimeLimit = true;
-                    setStatus("Finalizando com a validação local do DevTrack...");
-                    void engine.interruptGenerate().catch(() => undefined);
-                }, 60_000);
-
-                try {
-                    for await (const chunk of chunks) {
-                        content += chunk.choices[0]?.delta.content ?? "";
-
-                        /** Como o total é desconhecido, 100% fica reservado à validação. */
-                        const estimatedProgress = Math.min(
-                            94,
-                            8 + Math.round(content.length / 25),
-                        );
-                        setGenerationProgress(estimatedProgress);
-
-                        if (estimatedProgress < 30) {
-                            setStatus("Separando objetivo e requisitos...");
-                        } else if (estimatedProgress < 65) {
-                            setStatus("Montando etapas e critérios de conclusão...");
-                        } else {
-                            setStatus("Removendo repetições e conferindo o contexto...");
-                        }
-                    }
-                } finally {
-                    window.clearTimeout(generationTimeout);
-                }
-
-                /** Mesmo JSON incompleto termina em um plano válido por causa do service. */
+                const content = await runCloudModel(input);
                 const plan = createResilientPlan(content, input);
+                setMode("cloud");
                 setGenerationProgress(100);
-                setMode("ai");
                 setState("ready");
-                setStatus(
-                    reachedTimeLimit || !content.trim()
-                        ? "Plano concluído pelo modo seguro. Revise antes de salvar."
-                        : "Plano interpretado e revisado. Confira antes de salvar.",
-                );
+                setStatus("Plano criado pela IA na nuvem. Confira antes de salvar.");
                 return plan;
             } catch (caughtError) {
-                const detail =
+                skippedReasons.push(
                     caughtError instanceof Error
                         ? caughtError.message
-                        : "Falha na geração.";
-                return buildLocalPlan(input, `A geração falhou (${detail}).`);
+                        : "a IA na nuvem falhou",
+                );
             }
+
+            /** Último degrau: texto vazio faz o service usar só o plano determinístico. */
+            const plan = createResilientPlan("", input);
+            setMode("local");
+            setGenerationProgress(100);
+            setState("ready");
+            setStatus(
+                `Plano montado pelas regras do DevTrack (${skippedReasons.join("; ")}). Confira antes de salvar.`,
+            );
+            return plan;
         },
-        [buildLocalPlan, getEngine],
+        [runCloudModel, runLocalModel],
     );
 
     return {

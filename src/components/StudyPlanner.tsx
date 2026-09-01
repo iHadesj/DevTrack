@@ -205,18 +205,25 @@ export function StudyPlanner({
         }
     };
 
-    /** O texto explica se estamos baixando pesos ou gerando uma resposta local. */
+    /** O texto do botão nunca promete um download que este aparelho não fará. */
     const buttonLabel =
         state === "downloading"
             ? `Baixando... ${downloadProgress}%`
             : state === "generating"
                 ? "Criando plano..."
-                : /** Sem modelo possível, prometer download seria mentira na interface. */
-                mode === "local" || !isSupported
-                    ? "Gerar plano offline"
+                : !isSupported
+                    ? "Gerar plano"
                     : isModelReady
                         ? "Gerar plano offline"
                         : "Baixar assistente e gerar";
+
+    /** Etiqueta honesta sobre quem escreveu o plano que está na tela. */
+    const modeLabel =
+        mode === "ai"
+            ? "NESTE APARELHO"
+            : mode === "cloud"
+                ? "IA NA NUVEM"
+                : "REGRAS DO DEVTRACK";
 
     return (
         <PlannerCard
@@ -227,29 +234,30 @@ export function StudyPlanner({
             {!embedded && <BauhausMotif variant="planner" />}
             <PlannerHeader>
                 <div>
-                    <PlannerMeta>ASSISTENTE LOCAL · BETA</PlannerMeta>
+                    <PlannerMeta>ASSISTENTE · BETA</PlannerMeta>
                     <h2>
                         <BrainCircuit size={20} /> {heading}
                     </h2>
                     <p>
-                        A IA roda no seu navegador e funciona offline depois que o modelo
-                        estiver salvo neste aparelho.
+                        Quando o aparelho aguenta, a IA roda aqui dentro e funciona offline.
+                        Se não aguentar, o plano vem da IA na nuvem — e sem internet o
+                        DevTrack monta sozinho.
                     </p>
                 </div>
                 <Sparkles size={28} aria-hidden="true" />
             </PlannerHeader>
 
             {/*
-              * O formulário existe em qualquer aparelho: quando o modelo não pode
-              * rodar, o próprio DevTrack monta o plano com suas regras locais.
+              * O formulário existe em qualquer aparelho: o que muda entre eles é
+              * apenas qual degrau responde, nunca a possibilidade de planejar.
               */}
             <>
                     {!isSupported ? (
                         <DownloadNotice>
-                            <strong>Planejamento local neste aparelho.</strong>
-                            Este dispositivo não comporta o modelo de IA, então o DevTrack
-                            monta o plano com as próprias regras — sem download e sem
-                            internet.
+                            <strong>Sem modelo local neste aparelho.</strong>
+                            Com internet, o plano é criado pela IA na nuvem e seu objetivo
+                            é enviado para processamento. Sem internet, o DevTrack monta o
+                            plano com as próprias regras.
                         </DownloadNotice>
                     ) : (
                         !isModelReady && (
@@ -370,7 +378,8 @@ export function StudyPlanner({
 
             {suggestions.length > 0 && (
                 <SuggestionList>
-                    <PlannerMeta>REVISE ANTES DE SALVAR</PlannerMeta>
+                    {/* Quem gerou vem junto do aviso: a origem do plano não fica oculta. */}
+                    <PlannerMeta>REVISE ANTES DE SALVAR · {modeLabel}</PlannerMeta>
                     {suggestions.map((task) => {
                         const isSelected = selectedTitles.includes(task.title);
                         const isExpanded = expandedTitles.includes(task.title);
