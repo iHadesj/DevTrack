@@ -3,7 +3,8 @@
  * Na instalação, ele guarda a página inicial; depois, cada arquivo estático visitado
  * entra no cache. Assim o app pode reabrir sem rede após a primeira visita online.
  */
-const CACHE_NAME = "devtrack-shell-v1";
+const CACHE_PREFIX = "devtrack-shell-";
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const APP_SHELL = ["/", "/manifest.json"];
 
 /** Cria o cache inicial e força o novo worker a assumir a aba assim que possível. */
@@ -11,9 +12,12 @@ self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
 
-/** Ativa o worker e remove caches antigos quando a versão mudar. */
+/**
+ * Remove apenas versões antigas do nosso shell. Caches de terceiros — como os pesos
+ * do modelo guardados pelo WebLLM em `webllm/model` — precisam sobreviver ao deploy.
+ */
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
 
 /**
@@ -22,9 +26,16 @@ self.addEventListener("activate", (event) => {
  */
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  /**
+   * Download de outra origem (pesos do modelo, CDN) sai direto pelo navegador.
+   * Passar centenas de megabytes pela thread do worker só gasta memória à toa.
+   */
+  if (new URL(event.request.url).origin !== self.location.origin) return;
+
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request).then((response) => { const copy = response.clone(); void caches.open(CACHE_NAME).then((cache) => cache.put("/", copy)); return response; }).catch(() => caches.match("/")));
     return;
   }
-  event.respondWith(caches.match(event.request).then((cached) => cached ?? fetch(event.request).then((response) => { if (response.ok && new URL(event.request.url).origin === self.location.origin) { const copy = response.clone(); void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)); } return response; })));
+  event.respondWith(caches.match(event.request).then((cached) => cached ?? fetch(event.request).then((response) => { if (response.ok) { const copy = response.clone(); void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)); } return response; })));
 });

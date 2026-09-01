@@ -13,7 +13,6 @@ import {
     DownloadProgressBar,
     DownloadProgressFill,
     DownloadProgressLabel,
-    EmptyState,
     Form,
     FormField,
     PlannerCard,
@@ -116,6 +115,7 @@ export function StudyPlanner({
 }: StudyPlannerProps) {
     const {
         state,
+        mode,
         status,
         error,
         downloadProgress,
@@ -211,9 +211,12 @@ export function StudyPlanner({
             ? `Baixando... ${downloadProgress}%`
             : state === "generating"
                 ? "Criando plano..."
-                : isModelReady
+                : /** Sem modelo possível, prometer download seria mentira na interface. */
+                mode === "local" || !isSupported
                     ? "Gerar plano offline"
-                    : "Baixar assistente e gerar";
+                    : isModelReady
+                        ? "Gerar plano offline"
+                        : "Baixar assistente e gerar";
 
     return (
         <PlannerCard
@@ -236,19 +239,26 @@ export function StudyPlanner({
                 <Sparkles size={28} aria-hidden="true" />
             </PlannerHeader>
 
-            {!isSupported ? (
-                <EmptyState>
-                    WebGPU não está disponível neste navegador. O DevTrack continua
-                    funcionando; só o assistente local fica desativado.
-                </EmptyState>
-            ) : (
-                <>
-                    {!isModelReady && (
+            {/*
+              * O formulário existe em qualquer aparelho: quando o modelo não pode
+              * rodar, o próprio DevTrack monta o plano com suas regras locais.
+              */}
+            <>
+                    {!isSupported ? (
                         <DownloadNotice>
-                            <strong>Primeiro uso: internet obrigatória.</strong>
-                            O modelo precisa ser baixado uma vez. Depois disso, o assistente
-                            cria planos offline neste aparelho.
+                            <strong>Planejamento local neste aparelho.</strong>
+                            Este dispositivo não comporta o modelo de IA, então o DevTrack
+                            monta o plano com as próprias regras — sem download e sem
+                            internet.
                         </DownloadNotice>
+                    ) : (
+                        !isModelReady && (
+                            <DownloadNotice>
+                                <strong>Primeiro uso: internet obrigatória.</strong>
+                                O modelo precisa ser baixado uma vez. Depois disso, o
+                                assistente cria planos offline neste aparelho.
+                            </DownloadNotice>
+                        )
                     )}
 
                     {state === "downloading" && (
@@ -328,8 +338,7 @@ export function StudyPlanner({
                             {buttonLabel}
                         </PrimaryButton>
                     </Form>
-                </>
-            )}
+            </>
 
             <PlannerStatus $error={Boolean(error)}>{error ?? status}</PlannerStatus>
 

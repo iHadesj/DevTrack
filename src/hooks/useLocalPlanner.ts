@@ -27,80 +27,160 @@ export type PlannerState =
     | "unavailable"
     | "error";
 
+/** Como o plano foi produzido: pelo modelo baixado ou pelas regras locais do service. */
+export type PlannerMode = "ai" | "local";
+
+/** Tipos mínimos do WebGPU; o projeto não depende do pacote @webgpu/types. */
+type MinimalGpuAdapter = { features: { has(feature: string): boolean } };
+type MinimalGpu = { requestAdapter(): Promise<MinimalGpuAdapter | null> };
+
 /**
- * Carrega e usa uma única instância do WebLLM. Toda interpretação e validação
- * ficam no service, deixando este hook responsável apenas pelo ciclo assíncrono.
+ * Todo navegador de iPhone e iPad roda sobre WebKit, que encerra o processo da
+ * página ao carregar centenas de megabytes na GPU. Isso não gera exceção: a aba
+ * simplesmente morre, então a única defesa possível é não iniciar o download.
+ */
+function detectAppleMobile(): boolean {
+    if (typeof navigator === "undefined") return false;
+
+    const userAgent = navigator.userAgent;
+
+    /** iPadOS 13+ se declara "Macintosh"; a quantidade de toques entrega o disfarce. */
+    return (
+        /iPad|iPhone|iPod/.test(userAgent) ||
+        (userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1)
+    );
+}
+
+const HAS_WEBGPU =
+    typeof navigator !== "undefined" &&
+    "gpu" in (navigator as Navigator & { gpu?: unknown });
+const IS_APPLE_MOBILE = detectAppleMobile();
+
+/** O download só é liberado quando existe WebGPU e o aparelho aguenta o modelo. */
+const CAN_RUN_MODEL = HAS_WEBGPU && !IS_APPLE_MOBILE;
+
+/** Explica em uma frase por que o plano saiu sem o modelo. */
+const LOCAL_MODE_REASON = IS_APPLE_MOBILE
+    ? "iPhone e iPad encerram a página ao carregar o modelo, então o DevTrack planeja pelas regras locais."
+    : HAS_WEBGPU
+        ? "O modelo não pôde ser carregado aqui, então o DevTrack planeja pelas regras locais."
+        : "Este navegador não oferece WebGPU, então o DevTrack planeja pelas regras locais.";
+
+/**
+ * Confirma que a GPU aceita o modelo antes de baixar centenas de megabytes.
+ * Falhar nesta checagem é barato; falhar depois do download custa a sessão inteira.
+ */
+async function assertGpuSupportsModel(): Promise<void> {
+    const gpu = (navigator as Navigator & { gpu?: MinimalGpu }).gpu;
+    if (!gpu) throw new Error("WebGPU indisponível neste navegador.");
+
+    const adapter = await gpu.requestAdapter();
+    if (!adapter) throw new Error("Nenhuma GPU foi liberada para o navegador.");
+
+    /** O formato q4f16_1 exige meia precisão nos shaders; sem isso o motor quebra. */
+    if (!adapter.features.has("shader-f16")) {
+        throw new Error("Esta GPU não oferece shader-f16, exigido pelo modelo quantizado.");
+    }
+}
+
+/**
+ * Carrega e usa uma única instância do WebLLM quando o aparelho permite. Em
+ * qualquer outro caso o plano sai pelo service, que já funciona sem modelo algum.
  */
 export function useLocalPlanner() {
     const engineRef = useRef<MLCEngine | null>(null);
     const [state, setState] = useState<PlannerState>("idle");
+    const [mode, setMode] = useState<PlannerMode>(CAN_RUN_MODEL ? "ai" : "local");
     const [status, setStatus] = useState(
-        "Se o assistente ainda não foi baixado, o primeiro uso precisa de internet.",
+        CAN_RUN_MODEL
+            ? "Se o assistente ainda não foi baixado, o primeiro uso precisa de internet."
+            : LOCAL_MODE_REASON,
     );
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [generationProgress, setGenerationProgress] = useState(0);
     const [error, setError] = useState<string | null>(null);
 
-    /** Verifica WebGPU sem depender dos tipos experimentais do navegador. */
-    const isSupported =
-        typeof navigator !== "undefined" &&
-        "gpu" in (navigator as Navigator & { gpu?: unknown });
+    /** Mantido no retorno para não quebrar os componentes que já consultam a flag. */
+    const isSupported = CAN_RUN_MODEL;
+
+    /** Fecha o ciclo com um plano válido sempre que o modelo não puder participar. */
+    const buildLocalPlan = useCallback(
+        (input: PlannerInput, reason: string): StudyPlan => {
+            setMode("local");
+            setError(null);
+            setGenerationProgress(100);
+            setState("ready");
+            setStatus(`${reason} Confira antes de salvar.`);
+
+            /** Texto vazio faz o service usar apenas o plano determinístico. */
+            return createResilientPlan("", input);
+        },
+        [],
+    );
 
     /** Baixa ou recupera o modelo do cache e preserva o motor em memória. */
     const getEngine = useCallback(async (): Promise<MLCEngine> => {
-        if (!isSupported) {
+        if (!CAN_RUN_MODEL) {
             setState("unavailable");
-            throw new Error("Este navegador não oferece WebGPU para rodar a IA local.");
+            throw new Error(LOCAL_MODE_REASON);
         }
 
         if (engineRef.current) return engineRef.current;
 
-        try {
-            setError(null);
-            setState("downloading");
-            setDownloadProgress(0);
-            setStatus(
-                navigator.onLine
-                    ? "Baixando ou recuperando o modelo do cache..."
-                    : "Sem internet: tentando abrir um modelo já salvo neste aparelho...",
-            );
+        setError(null);
+        setState("downloading");
+        setDownloadProgress(0);
+        setStatus("Conferindo se esta GPU aceita o modelo...");
 
-            /** O import dinâmico evita carregar os 6 MB do motor na abertura do app. */
-            const webllm = await import("@mlc-ai/web-llm");
-            const engine = await webllm.CreateMLCEngine(PLANNER_MODEL_ID, {
-                initProgressCallback: (progress) => {
-                    /** WebLLM entrega 0 a 1; a barra visual trabalha de 0 a 100. */
-                    const percentage = Math.round(
-                        Math.min(1, Math.max(0, progress.progress)) * 100,
-                    );
-                    setDownloadProgress(percentage);
-                    setStatus(progress.text);
-                },
-            });
+        /** A checagem vem antes do download para não gastar rede à toa. */
+        await assertGpuSupportsModel();
 
-            engineRef.current = engine;
-            setDownloadProgress(100);
-            setState("ready");
-            setStatus("Assistente local pronto. Seus pedidos não saem do aparelho.");
-            return engine;
-        } catch (caughtError) {
-            const message =
-                caughtError instanceof Error
-                    ? caughtError.message
-                    : "Não foi possível carregar a IA local.";
-            setError(message);
-            setState("error");
-            throw caughtError;
-        }
-    }, [isSupported]);
+        setStatus(
+            navigator.onLine
+                ? "Baixando ou recuperando o modelo do cache..."
+                : "Sem internet: tentando abrir um modelo já salvo neste aparelho...",
+        );
+
+        /** O import dinâmico evita carregar os 6 MB do motor na abertura do app. */
+        const webllm = await import("@mlc-ai/web-llm");
+        const engine = await webllm.CreateMLCEngine(PLANNER_MODEL_ID, {
+            initProgressCallback: (progress) => {
+                /** WebLLM entrega 0 a 1; a barra visual trabalha de 0 a 100. */
+                const percentage = Math.round(
+                    Math.min(1, Math.max(0, progress.progress)) * 100,
+                );
+                setDownloadProgress(percentage);
+                setStatus(progress.text);
+            },
+        });
+
+        engineRef.current = engine;
+        setDownloadProgress(100);
+        setMode("ai");
+        setState("ready");
+        setStatus("Assistente local pronto. Seus pedidos não saem do aparelho.");
+        return engine;
+    }, []);
 
     /**
-     * Gera texto com o modelo e sempre passa o resultado pelo planejador seguro.
-     * O callback é estável para o Context não provocar renders desnecessários.
+     * Gera o plano e nunca deixa a pessoa sem resposta: se o motor não existe,
+     * não carrega ou falha no meio, o planejamento determinístico assume.
      */
     const createPlan = useCallback(
         async (input: PlannerInput): Promise<StudyPlan> => {
-            const engine = await getEngine();
+            if (!CAN_RUN_MODEL) return buildLocalPlan(input, LOCAL_MODE_REASON);
+
+            let engine: MLCEngine;
+
+            try {
+                engine = await getEngine();
+            } catch (caughtError) {
+                const detail =
+                    caughtError instanceof Error
+                        ? caughtError.message
+                        : "Motor indisponível.";
+                return buildLocalPlan(input, `Assistente não carregou (${detail}).`);
+            }
 
             try {
                 setError(null);
@@ -166,6 +246,7 @@ export function useLocalPlanner() {
                 /** Mesmo JSON incompleto termina em um plano válido por causa do service. */
                 const plan = createResilientPlan(content, input);
                 setGenerationProgress(100);
+                setMode("ai");
                 setState("ready");
                 setStatus(
                     reachedTimeLimit || !content.trim()
@@ -174,21 +255,19 @@ export function useLocalPlanner() {
                 );
                 return plan;
             } catch (caughtError) {
-                const message =
+                const detail =
                     caughtError instanceof Error
                         ? caughtError.message
-                        : "Não foi possível gerar o plano local.";
-                setError(message);
-                setGenerationProgress(0);
-                setState("error");
-                throw caughtError;
+                        : "Falha na geração.";
+                return buildLocalPlan(input, `A geração falhou (${detail}).`);
             }
         },
-        [getEngine],
+        [buildLocalPlan, getEngine],
     );
 
     return {
         state,
+        mode,
         status,
         error,
         downloadProgress,
