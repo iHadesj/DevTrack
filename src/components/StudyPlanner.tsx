@@ -1,5 +1,6 @@
 import { BrainCircuit, Check, ChevronDown, Sparkles } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { BauhausMotif } from "./BauhausMotif";
 import { useAssistant } from "../context/AssistantContext";
 import {
     extractTechTerms,
@@ -219,6 +220,8 @@ export function StudyPlanner({
             $embedded={embedded}
             className={embedded ? "planner-embedded" : undefined}
         >
+            {/* Embutido no modal o cartão perde o fundo, então o motivo do modal já basta. */}
+            {!embedded && <BauhausMotif variant="planner" />}
             <PlannerHeader>
                 <div>
                     <PlannerMeta>ASSISTENTE LOCAL · BETA</PlannerMeta>

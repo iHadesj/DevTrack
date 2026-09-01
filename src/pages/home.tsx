@@ -12,6 +12,7 @@ import {
     Timer,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { BauhausBand, BauhausMotif } from "../components/BauhausMotif";
 import { CreateModal, type CreateMode } from "../components/CreateModal";
 import { AssistantModal } from "../components/AssistantModal";
 import { Sidebar, type AppView } from "../components/Sidebar";
@@ -219,6 +220,8 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
     const renderFirstJourney = () => (
         <motion.div {...entrance}>
             <WelcomeHero>
+                {/* A composição completa: círculo, quarto, barra, anel, triângulo e hachura. */}
+                <BauhausMotif variant="hero" />
                 <WelcomeEyebrow>OFFLINE-FIRST · FEITO PARA A VIDA REAL</WelcomeEyebrow>
                 <WelcomeTitle>
                     Organiza o corre.
@@ -278,6 +281,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
 
             <motion.div {...entrance} transition={{ ...entrance.transition, delay: 0.14 }}>
                 <AssistantPromo>
+                    <BauhausMotif variant="promo" />
                     <AssistantPromoIcon>
                         <BrainCircuit size={21} />
                     </AssistantPromoIcon>
@@ -326,6 +330,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                     </Panel>
 
                     <Panel>
+                        <BauhausMotif variant="panel" />
                         <PanelKicker>FOCO</PanelKicker>
                         <PanelTitle>Estudo de hoje</PanelTitle>
                         <FocusNumber>{formatMinutes(metrics.studyMinutesToday)}</FocusNumber>
@@ -348,6 +353,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
         if (activeView === "Tarefas") {
             return (
                 <ViewPanel>
+                    <BauhausMotif variant="journal" />
                     <PanelHeading>
                         <div>
                             <PanelKicker>LISTA COMPLETA</PanelKicker>
@@ -376,6 +382,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                 <StudyLayout>
                     <StudyPlanner onCreateTask={createTask} />
                     <ViewPanel>
+                    <BauhausMotif variant="journal" />
                     <PanelHeading>
                         <div>
                             <PanelKicker>HISTÓRICO DE FOCO</PanelKicker>
@@ -416,6 +423,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
 
         return (
             <ViewPanel>
+                <BauhausMotif variant="journal" />
                 <PanelHeading>
                     <div>
                         <PanelKicker>DIÁRIO DO ESTÁGIO</PanelKicker>
@@ -457,6 +465,8 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                 />
 
                 <MainContent>
+                    {/* Fundo geométrico de página inteira, em opacidade baixa. */}
+                    <BauhausMotif variant="page" />
                     <motion.div {...entrance}>
                         <Topbar>
                             <div>
@@ -495,6 +505,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                                 </PrimaryButton>
                             </TopActions>
                         </Topbar>
+                        <BauhausBand />
                     </motion.div>
 
                     <AnimatePresence mode="wait">

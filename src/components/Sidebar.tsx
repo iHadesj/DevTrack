@@ -1,4 +1,5 @@
 import { BookOpenCheck, BriefcaseBusiness, CheckSquare2, CircleDot, LayoutDashboard } from "lucide-react";
+import { BauhausBand, BauhausMotif } from "./BauhausMotif";
 import { Brand, BrandMark, NavItem, NavLabel, OfflineBadge, SidebarFooter, SidebarNav, SidebarShell } from "../styles";
 
 /** Telas que o menu lateral pode selecionar. A união impede navegar para uma tela inválida. */
@@ -17,5 +18,5 @@ const navigation = [
 
 /** Menu lateral com o estado atual da sincronização offline-first. */
 export function Sidebar({ activeView, pendingSyncCount, onSelect }: SidebarProps) {
-    return <SidebarShell className="sidebar"><Brand><BrandMark><CircleDot size={18} /></BrandMark><span>devtrack</span></Brand><SidebarNav aria-label="Navegação principal"><NavLabel>Meu espaço</NavLabel>{navigation.map(({ label, icon: Icon }) => <NavItem key={label} type="button" $active={activeView === label} onClick={() => onSelect(label)}><Icon size={18} />{label}</NavItem>)}</SidebarNav><SidebarFooter><OfflineBadge><strong><CircleDot size={11} /> Offline-first ativo</strong>{pendingSyncCount === 0 ? "Tudo salvo neste dispositivo." : `${pendingSyncCount} alteração(ões) na fila de sync.`}</OfflineBadge></SidebarFooter></SidebarShell>;
+    return <SidebarShell className="sidebar"><BauhausMotif variant="sidebar" /><Brand><BrandMark><CircleDot size={18} /></BrandMark><span>devtrack</span></Brand><BauhausBand /><SidebarNav aria-label="Navegação principal"><NavLabel>Meu espaço</NavLabel>{navigation.map(({ label, icon: Icon }) => <NavItem key={label} type="button" $active={activeView === label} onClick={() => onSelect(label)}><Icon size={18} />{label}</NavItem>)}</SidebarNav><SidebarFooter><OfflineBadge><strong><CircleDot size={11} /> Offline-first ativo</strong>{pendingSyncCount === 0 ? "Tudo salvo neste dispositivo." : `${pendingSyncCount} alteração(ões) na fila de sync.`}</OfflineBadge></SidebarFooter></SidebarShell>;
 }
