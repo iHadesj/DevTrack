@@ -1,0 +1,22 @@
+{
+  "short_name": "DevTrack",
+  "name": "DevTrack — rotina de estudos e estágio",
+  "icons": [
+    {
+      "src": "devtrack-icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "devtrack-icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#151719",
+  "background_color": "#f5f1e7"
+}
