@@ -39,6 +39,29 @@ export const MainContent = styled.main`width: min(100%, 1280px); padding: 42px 5
 export const Topbar = styled.header`display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 34px;`;
 export const Eyebrow = styled.span`display: block; margin-bottom: 9px; color: ${({ theme }) => theme.colors.muted}; font-size: 10px; font-weight: 900; letter-spacing: 1.3px;`;
 export const PageTitle = styled.h1`max-width: 650px; margin: 0; font-size: clamp(31px, 4vw, 48px); font-weight: 950; line-height: .98; letter-spacing: -3px;`;
+type MotifProps = { $variant: "page" | "hero" | "sidebar" | "promo" | "modal" };
+/** Escala de cada contexto: as formas são as mesmas, só o tamanho relativo muda. */
+const motifScale: Record<MotifProps["$variant"], number> = { page: .72, hero: 1, sidebar: .38, promo: .5, modal: .46 };
+/** Recuo lateral por contexto, para o motivo não colidir com o texto do bloco. */
+const motifShift: Record<MotifProps["$variant"], string> = { page: "6%", hero: "8%", sidebar: "0%", promo: "2%", modal: "3%" };
+/**
+ * Camada decorativa absoluta — o pai precisa ter `position: relative`.
+ * `pointer-events: none` garante que as formas nunca roubem clique do conteúdo.
+ */
+export const BauhausMotifShell = styled.span<MotifProps>`
+  position: absolute; inset: 0; z-index: 0; display: block; overflow: hidden; pointer-events: none;
+  --motif-scale: ${({ $variant }: MotifProps) => motifScale[$variant]};
+  --motif-shift: ${({ $variant }: MotifProps) => motifShift[$variant]};
+  opacity: ${({ $variant }) => ($variant === "hero" ? .95 : .6)};
+
+  span { position: absolute; display: block; }
+  .shape-circle { top: calc(-9% * var(--motif-scale)); right: var(--motif-shift); width: calc(196px * var(--motif-scale)); height: calc(196px * var(--motif-scale)); background: ${({ theme }) => theme.colors.yellow}; border-radius: 50%; }
+  .shape-square { bottom: 7%; left: var(--motif-shift); width: calc(118px * var(--motif-scale)); height: calc(118px * var(--motif-scale)); background: ${({ theme }) => theme.colors.blue}; transform: rotate(14deg); }
+  .shape-bar { top: 44%; left: -4%; width: calc(230px * var(--motif-scale)); height: calc(22px * var(--motif-scale)); background: ${({ theme }) => theme.colors.red}; border-radius: 99px; }
+  .shape-ring { right: 26%; bottom: calc(-11% * var(--motif-scale)); width: calc(142px * var(--motif-scale)); height: calc(142px * var(--motif-scale)); background: transparent; border: calc(13px * var(--motif-scale)) solid ${({ theme }) => theme.colors.ink}; border-radius: 50%; }
+  .shape-arc { top: 16%; right: 33%; width: calc(104px * var(--motif-scale)); height: calc(52px * var(--motif-scale)); background: ${({ theme }) => theme.colors.green}; border-radius: calc(104px * var(--motif-scale)) calc(104px * var(--motif-scale)) 0 0; }
+`;
+
 /** Hero mostrado apenas na primeira jornada: orienta o usuário antes de exibir cards vazios. */
 export const WelcomeHero = styled.section`
   position: relative; overflow: hidden; min-height: 430px; padding: clamp(30px, 5vw, 64px); display: flex; flex-direction: column; justify-content: center; background: #151713; color: #f8f3e8; border: 2px solid #151713; border-radius: 32px 12px 32px 12px;
