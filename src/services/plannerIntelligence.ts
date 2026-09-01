@@ -627,6 +627,19 @@ function staysOnTopic(taskToCheck: PlannedTask, profile: ObjectiveProfile): bool
     return profile.keywords.some((keyword) => taskWords.has(keyword));
 }
 
+/**
+ * Fuga de assunto é característica do plano, não de cada etapa. Uma etapa como
+ * "Definir cronograma e recursos" pertence ao pedido sem repetir nenhuma palavra
+ * dele, então exigir a palavra literal em todas as quatro descartava plano bom.
+ * Metade das etapas ancorada no tema já denuncia o modelo que mudou de assunto.
+ */
+function planStaysOnTopic(tasks: PlannedTask[], profile: ObjectiveProfile): boolean {
+    if (profile.keywords.length === 0 || tasks.length === 0) return true;
+    const anchored = tasks.filter((item) => staysOnTopic(item, profile)).length;
+
+    return anchored * 2 >= tasks.length;
+}
+
 /** Rejeita títulos que apenas repetem o pedido inteiro em vez de nomear uma ação. */
 function hasFocusedTitle(title: string, input: PlannerInput): boolean {
     const normalizedTitle = normalizeForComparison(title);
@@ -638,44 +651,72 @@ function hasFocusedTitle(title: string, input: PlannerInput): boolean {
     return title.trim().length >= 8 && title.trim().length <= 100 && !copiedMostOfObjective;
 }
 
+/**
+ * Radicais de ação, e não imperativos fechados. Um texto bem escrito conjuga o
+ * verbo — "listar", "anotadas", "simulação", "Realize" — e a lista antiga só
+ * aceitava a forma exata, reprovando plano bom por causa da conjugação.
+ */
+const ACTION_STEMS = [
+    "anot",
+    "aplic",
+    "assist",
+    "avali",
+    "classific",
+    "compar",
+    "confer",
+    "confir",
+    "convers",
+    "defin",
+    "descrev",
+    "divid",
+    "escolh",
+    "escrev",
+    "escut",
+    "execut",
+    "identific",
+    "list",
+    "mape",
+    "marc",
+    "mont",
+    "organiz",
+    "ouc",
+    "ouv",
+    "pesquis",
+    "pratic",
+    "prepar",
+    "realiz",
+    "registr",
+    "reproduz",
+    "respond",
+    "reun",
+    "revis",
+    "selecion",
+    "simul",
+    "test",
+    "trein",
+    "utiliz",
+    "verific",
+];
+
+/**
+ * Radicais curtos demais para virar prefixo solto: "cri" acharia "critério" e
+ * "us" acharia qualquer coisa. Estes vão com as terminações escritas na mão.
+ */
+const ACTION_EXACT_FORMS =
+    "cri(?:e|ar|ando|ad[oa]s?)|fa(?:ca|zer|zendo)|us(?:e|ar|ando)|ajud\\w*|le(?:ia|r)";
+
+const ACTION_PATTERN = new RegExp(
+    `\\b(?:${ACTION_STEMS.join("|")})\\w*|\\b(?:${ACTION_EXACT_FORMS})\\b`,
+);
+
 /** Exige motivo e instrução acionável, independentemente do domínio. */
 function hasUsefulDetail(taskToCheck: PlannedTask): boolean {
     const guidance = normalizeForComparison(taskToCheck.howToStudy);
-    const actionWords = [
-        "anote",
-        "aplique",
-        "avalie",
-        "classifique",
-        "compare",
-        "confira",
-        "crie",
-        "defina",
-        "descreva",
-        "divida",
-        "escolha",
-        "escreva",
-        "execute",
-        "faca",
-        "identifique",
-        "liste",
-        "mapeie",
-        "marque",
-        "monte",
-        "pesquise",
-        "registre",
-        "reproduza",
-        "reuna",
-        "selecione",
-        "simule",
-        "teste",
-        "use",
-        "verifique",
-    ];
 
     return (
         taskToCheck.reason.trim().length >= 28 &&
         taskToCheck.howToStudy.trim().length >= 70 &&
-        actionWords.some((word) => guidance.includes(word))
+        ACTION_PATTERN.test(guidance)
     );
 }
 
@@ -686,12 +727,12 @@ function isValidGeneratedTask(
     profile: ObjectiveProfile,
 ): boolean {
     const completeText = `${taskToCheck.title} ${taskToCheck.reason} ${taskToCheck.howToStudy}`;
+    /** O tema é conferido no plano inteiro por `planStaysOnTopic`, não aqui. */
     return (
         !containsPlaceholder(completeText) &&
         !containsUnexpectedLegalTopic(completeText, profile) &&
         hasFocusedTitle(taskToCheck.title, input) &&
-        hasUsefulDetail(taskToCheck) &&
-        staysOnTopic(taskToCheck, profile)
+        hasUsefulDetail(taskToCheck)
     );
 }
 
@@ -783,27 +824,33 @@ export function createResilientPlan(rawText: string, input: PlannerInput): Study
 
     try {
         const generated = parseGeneratedPlan(rawText, input);
-        const validGeneratedTasks = generated.tasks.filter((item) =>
-            isValidGeneratedTask(item, input, profile),
+        const approvedTasks = uniqueTasks(
+            generated.tasks.filter((item) => isValidGeneratedTask(item, input, profile)),
         );
-        const validGeneratedTip = generated.tips.find(
-            (tip) =>
-                tip.length >= 35 &&
-                !containsPlaceholder(tip) &&
-                !containsUnexpectedLegalTopic(tip, profile),
-        );
+        const isPresentableText = (text: string): boolean =>
+            text.trim().length >= 35 &&
+            !containsPlaceholder(text) &&
+            !containsUnexpectedLegalTopic(text, profile);
+
+        const validGeneratedTip = generated.tips.find(isPresentableText);
 
         return {
-            /** A introdução local é curta e nunca copia placeholders do modelo. */
-            introduction: fallback.introduction,
+            /** A introdução da IA fala do assunto real; a local entra se ela reprovar. */
+            introduction: isPresentableText(generated.introduction)
+                ? generated.introduction.trim()
+                : fallback.introduction,
             tips: [
                 ...fallback.tips.slice(0, 2),
                 validGeneratedTip ?? fallback.tips[2],
             ],
-            /** Um plano parcial da IA quebraria a ordem; quatro válidas ou fallback inteiro. */
+            /**
+             * Um plano parcial da IA quebraria a ordem: são quatro etapas válidas
+             * ou o fallback inteiro. O corte é `>= 4` porque uma resposta com cinco
+             * etapas boas também serve — com `=== 4` ela caía fora sem motivo.
+             */
             tasks:
-                uniqueTasks(validGeneratedTasks).length === 4
-                    ? uniqueTasks(validGeneratedTasks).slice(0, 4)
+                approvedTasks.length >= 4 && planStaysOnTopic(approvedTasks, profile)
+                    ? approvedTasks.slice(0, 4)
                     : fallback.tasks,
         };
     } catch {

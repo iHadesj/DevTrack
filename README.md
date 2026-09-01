@@ -21,6 +21,11 @@ npm install
 npm run dev
 ```
 
+O assistente na nuvem também funciona em desenvolvimento: copie `.env.example` para
+`.env.local`, preencha `GEMINI_API_KEY` e reinicie o `npm run dev`. O `vite` sozinho não
+executa a pasta `api`, então um plugin em `vite.config.ts` roda a mesma função
+`api/plan.ts` que a Vercel usa em produção.
+
 Para validar a versão de produção:
 
 ```bash

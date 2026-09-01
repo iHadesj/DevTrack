@@ -17,7 +17,13 @@ export type {
 } from "../services/plannerIntelligence";
 
 /** Modelo pequeno e quantizado: uma escolha realista para dispositivos pessoais. */
-const PLANNER_MODEL_ID = "Qwen3-0.6B-q4f16_1-MLC";
+const PLANNER_MODEL_F16 = "Qwen3-0.6B-q4f16_1-MLC";
+
+/**
+ * A mesma rede em precisão simples. Baixa mais bytes, porém roda em GPU sem
+ * `shader-f16` — o caso de boa parte dos vídeos integrados.
+ */
+const PLANNER_MODEL_F32 = "Qwen3-0.6B-q4f32_1-MLC";
 
 /** Estados explícitos para a interface comunicar download e geração. */
 export type PlannerState =
@@ -71,20 +77,21 @@ const NO_LOCAL_MODEL_REASON = IS_APPLE_MOBILE
     : "Este navegador não oferece WebGPU para rodar o modelo local.";
 
 /**
- * Confirma que a GPU aceita o modelo antes de baixar centenas de megabytes.
- * Falhar nesta checagem é barato; falhar depois do download custa a sessão inteira.
+ * Escolhe o modelo que esta GPU consegue rodar, antes de baixar centenas de
+ * megabytes. Decidir aqui é barato; descobrir depois do download custa a sessão.
  */
-async function assertGpuSupportsModel(): Promise<void> {
+async function pickPlannerModel(): Promise<string> {
     const gpu = (navigator as Navigator & { gpu?: MinimalGpu }).gpu;
     if (!gpu) throw new Error("WebGPU indisponível neste navegador.");
 
     const adapter = await gpu.requestAdapter();
     if (!adapter) throw new Error("Nenhuma GPU foi liberada para o navegador.");
 
-    /** O formato q4f16_1 exige meia precisão nos shaders; sem isso o motor quebra. */
-    if (!adapter.features.has("shader-f16")) {
-        throw new Error("Esta GPU não oferece shader-f16, exigido pelo modelo quantizado.");
-    }
+    /**
+     * O formato q4f16_1 exige meia precisão nos shaders. Faltando o recurso, a
+     * saída é o build q4f32_1 em vez de abrir mão do modelo local.
+     */
+    return adapter.features.has("shader-f16") ? PLANNER_MODEL_F16 : PLANNER_MODEL_F32;
 }
 
 /**
@@ -117,8 +124,8 @@ export function useLocalPlanner() {
         setDownloadProgress(0);
         setStatus("Conferindo se esta GPU aceita o modelo...");
 
-        /** A checagem vem antes do download para não gastar rede à toa. */
-        await assertGpuSupportsModel();
+        /** A escolha vem antes do download para não gastar rede à toa. */
+        const modelId = await pickPlannerModel();
 
         setStatus(
             navigator.onLine
@@ -128,7 +135,7 @@ export function useLocalPlanner() {
 
         /** O import dinâmico evita carregar os 6 MB do motor na abertura do app. */
         const webllm = await import("@mlc-ai/web-llm");
-        const engine = await webllm.CreateMLCEngine(PLANNER_MODEL_ID, {
+        const engine = await webllm.CreateMLCEngine(modelId, {
             initProgressCallback: (progress) => {
                 /** WebLLM entrega 0 a 1; a barra visual trabalha de 0 a 100. */
                 const percentage = Math.round(

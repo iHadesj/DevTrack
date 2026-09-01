@@ -13,7 +13,7 @@ import {
  */
 
 /** O modelo é configurável para trocar de versão sem novo deploy de código. */
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /** Um objetivo real cabe folgado aqui; textos maiores só serviriam para abuso. */
@@ -65,6 +65,46 @@ function parseInput(raw: unknown): PlannerInput | null {
     };
 }
 
+/** Cota gratuita oscila: estes códigos costumam passar numa tentativa seguinte. */
+const RETRIABLE_STATUS = new Set([429, 503]);
+const MAX_RETRIES = 2;
+/** Sobrecarga responde em menos de um segundo, então esperar pouco custa pouco. */
+const RETRY_DELAY_MS = 800;
+
+/** Isolada do handler justamente para poder ser repetida sem duplicar o corpo. */
+function callProvider(apiKey: string, input: PlannerInput): Promise<Response> {
+    return fetch(GEMINI_ENDPOINT, {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+            systemInstruction: {
+                parts: [
+                    {
+                        text: "Você é um planejador geral. Responda exclusivamente em português brasileiro e apenas com JSON válido, sem presumir que o assunto seja tecnologia.",
+                    },
+                ],
+            },
+            contents: [{ role: "user", parts: [{ text: createPlannerPrompt(input) }] }],
+            generationConfig: {
+                /** Baixa aleatoriedade mantém o modelo preso ao contrato de JSON. */
+                temperature: 0.2,
+                maxOutputTokens: 2048,
+                /** Pede JSON direto, poupando a limpeza de Markdown no cliente. */
+                responseMimeType: "application/json",
+                /**
+                 * O Flash é um modelo de raciocínio e gastaria os tokens de saída
+                 * pensando. A geração 3 controla isso por nível, não por orçamento:
+                 * `thinkingBudget` é recusado com 400 INVALID_ARGUMENT.
+                 */
+                thinkingConfig: { thinkingLevel: "low" },
+            },
+        }),
+    });
+}
+
 export default async function handler(request: Request): Promise<Response> {
     if (request.method !== "POST") return json({ error: "Use POST." }, 405);
 
@@ -86,37 +126,17 @@ export default async function handler(request: Request): Promise<Response> {
     if (!input) return json({ error: "Pedido fora do formato aceito." }, 400);
 
     try {
-        const response = await fetch(GEMINI_ENDPOINT, {
-            method: "POST",
-            headers: {
-                "content-type": "application/json",
-                "x-goog-api-key": apiKey,
-            },
-            body: JSON.stringify({
-                systemInstruction: {
-                    parts: [
-                        {
-                            text: "Você é um planejador geral. Responda exclusivamente em português brasileiro e apenas com JSON válido, sem presumir que o assunto seja tecnologia.",
-                        },
-                    ],
-                },
-                contents: [
-                    { role: "user", parts: [{ text: createPlannerPrompt(input) }] },
-                ],
-                generationConfig: {
-                    /** Baixa aleatoriedade mantém o modelo preso ao contrato de JSON. */
-                    temperature: 0.2,
-                    maxOutputTokens: 2048,
-                    /** Pede JSON direto, poupando a limpeza de Markdown no cliente. */
-                    responseMimeType: "application/json",
-                    /**
-                     * O Flash é um modelo de raciocínio: sem zerar o orçamento de
-                     * pensamento ele gasta os tokens de saída e devolve texto vazio.
-                     */
-                    thinkingConfig: { thinkingBudget: 0 },
-                },
-            }),
-        });
+        let response = await callProvider(apiKey, input);
+
+        /** Insistir aqui evita cair no plano genérico por soluço de demanda. */
+        for (
+            let attempt = 1;
+            attempt <= MAX_RETRIES && RETRIABLE_STATUS.has(response.status);
+            attempt += 1
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+            response = await callProvider(apiKey, input);
+        }
 
         if (!response.ok) {
             const detail = await response.text();

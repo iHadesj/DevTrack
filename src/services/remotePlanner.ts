@@ -28,12 +28,19 @@ export async function requestRemotePlanText(input: PlannerInput): Promise<string
         });
 
         if (!response.ok) {
-            const detail = (await response.json().catch(() => null)) as {
-                error?: string;
-            } | null;
+            /** Falha de plataforma chega em HTML, então o corpo é lido como texto. */
+            const body = await response.text().catch(() => "");
+
+            let reported: string | undefined;
+            try {
+                reported = (JSON.parse(body) as { error?: string }).error;
+            } catch {
+                /** Corpo fora do JSON indica que a função sequer chegou a rodar. */
+            }
 
             throw new RemotePlannerError(
-                detail?.error ?? `A IA na nuvem respondeu ${response.status}.`,
+                reported ??
+                    `A IA na nuvem respondeu ${response.status} sem detalhe: a rota /api/plan não está de pé neste ambiente.`,
             );
         }
 
