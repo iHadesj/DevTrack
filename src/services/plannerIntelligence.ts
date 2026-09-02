@@ -23,6 +23,14 @@ export type StudyPlan = {
     introduction: string;
     tips: string[];
     tasks: PlannedTask[];
+    /**
+     * De onde saíram as etapas realmente exibidas. Sem isto a interface anuncia
+     * "NESTE APARELHO" mesmo quando o validador trocou tudo pelo plano de regras.
+     * `mixed` é o caso comum em modelo pequeno: ele acerta parte das etapas.
+     */
+    tasksOrigin?: "ai" | "mixed" | "fallback";
+    /** Qual regra recusou as etapas da IA, para a recusa não virar silêncio. */
+    rejectionReason?: string;
 };
 
 /** Intenções gerais atendidas sem assumir que o assunto é desenvolvimento. */
@@ -616,28 +624,50 @@ function containsUnexpectedLegalTopic(text: string, profile: ObjectiveProfile): 
     );
 }
 
+/**
+ * Comparar palavra inteira reprovava a etapa certa por causa de flexão:
+ * "organizo" não casava com "organizar", nem "casas" com "casa". Quatro letras
+ * de radical bastam para reconhecer a mesma palavra sem exigir a mesma forma.
+ */
+const KEYWORD_STEM_LENGTH = 4;
+
+/** Trata duas palavras como a mesma quando compartilham o radical. */
+function sharesRadical(word: string, otherWord: string): boolean {
+    if (word === otherWord) return true;
+    if (Math.min(word.length, otherWord.length) < KEYWORD_STEM_LENGTH) return false;
+
+    return (
+        word.slice(0, KEYWORD_STEM_LENGTH) ===
+        otherWord.slice(0, KEYWORD_STEM_LENGTH)
+    );
+}
+
 /** Confere se ao menos uma palavra importante do pedido aparece na etapa. */
 function staysOnTopic(taskToCheck: PlannedTask, profile: ObjectiveProfile): boolean {
     if (profile.keywords.length === 0) return true;
-    const taskWords = new Set(
-        extractKeywords(
-            `${taskToCheck.title} ${taskToCheck.reason} ${taskToCheck.howToStudy}`,
-        ),
+    const taskWords = extractKeywords(
+        `${taskToCheck.title} ${taskToCheck.reason} ${taskToCheck.howToStudy}`,
     );
-    return profile.keywords.some((keyword) => taskWords.has(keyword));
+
+    return profile.keywords.some((keyword) =>
+        taskWords.some((taskWord) => sharesRadical(taskWord, keyword)),
+    );
 }
 
 /**
  * Fuga de assunto é característica do plano, não de cada etapa. Uma etapa como
  * "Definir cronograma e recursos" pertence ao pedido sem repetir nenhuma palavra
- * dele, então exigir a palavra literal em todas as quatro descartava plano bom.
- * Metade das etapas ancorada no tema já denuncia o modelo que mudou de assunto.
+ * dele, então exigir a palavra literal em cada uma descartava plano bom.
+ *
+ * Exigir metade ainda reprovava demais: um plano coeso costuma citar o assunto
+ * na primeira etapa e seguir em pronomes. Uma âncora já separa o modelo que
+ * respondeu ao pedido daquele que trocou de assunto — que é o único caso que
+ * esta regra existe para pegar.
  */
 function planStaysOnTopic(tasks: PlannedTask[], profile: ObjectiveProfile): boolean {
     if (profile.keywords.length === 0 || tasks.length === 0) return true;
-    const anchored = tasks.filter((item) => staysOnTopic(item, profile)).length;
 
-    return anchored * 2 >= tasks.length;
+    return tasks.some((item) => staysOnTopic(item, profile));
 }
 
 /** Rejeita títulos que apenas repetem o pedido inteiro em vez de nomear uma ação. */
@@ -705,19 +735,83 @@ const ACTION_STEMS = [
 const ACTION_EXACT_FORMS =
     "cri(?:e|ar|ando|ad[oa]s?)|fa(?:ca|zer|zendo)|us(?:e|ar|ando)|ajud\\w*|le(?:ia|r)";
 
+/**
+ * A lista curada acima cobre 39 radicais; o português tem milhares de verbos.
+ * "Combine com sua prima", "Avise no sábado" e "Reserve o horário" eram todos
+ * reprovados por ausência na lista, não por falta de ação.
+ *
+ * Este padrão reconhece a morfologia: infinitivo (-ar/-er/-ir) e gerúndio
+ * (-ando/-endo/-indo). Ele aceita substantivos com a mesma terminação — "lugar",
+ * "mulher" — e isso é aceitável: a regra existe para barrar orientação vaga, e
+ * o tamanho mínimo já faz esse trabalho. Errar para o lado de aceitar o texto
+ * da IA é exatamente a troca que este projeto quer.
+ */
+const VERB_MORPHOLOGY = "\\b\\w{3,}(?:ando|endo|indo)\\b|\\b\\w{4,}(?:ar|er|ir)\\b";
+
 const ACTION_PATTERN = new RegExp(
-    `\\b(?:${ACTION_STEMS.join("|")})\\w*|\\b(?:${ACTION_EXACT_FORMS})\\b`,
+    `\\b(?:${ACTION_STEMS.join("|")})\\w*|\\b(?:${ACTION_EXACT_FORMS})\\b|${VERB_MORPHOLOGY}`,
 );
 
-/** Exige motivo e instrução acionável, independentemente do domínio. */
-function hasUsefulDetail(taskToCheck: PlannedTask): boolean {
-    const guidance = normalizeForComparison(taskToCheck.howToStudy);
+/** Tamanho do plano de regras, e o alvo quando é preciso completar a IA. */
+const PLAN_TASK_COUNT = 4;
 
-    return (
-        taskToCheck.reason.trim().length >= 28 &&
-        taskToCheck.howToStudy.trim().length >= 70 &&
-        ACTION_PATTERN.test(guidance)
-    );
+/**
+ * A partir daqui o plano da IA vale sozinho, sem completar com etapa de regra.
+ * Três etapas pensadas para o pedido real valem mais que quatro genéricas.
+ */
+const MIN_AI_TASKS = 2;
+
+/** Teto só para uma resposta prolixa não virar uma lista sem fim na tela. */
+const MAX_AI_TASKS = 6;
+
+/** Uma frase curta já justifica a ordem; exigir mais só reprovava texto bom. */
+const MIN_REASON_LENGTH = 28;
+
+/**
+ * Medido no Qwen3-0.6B: ele escreve orientações de 45 a 55 caracteres. A régua
+ * fica abaixo da menor medição de propósito — o objetivo é barrar texto vazio,
+ * não reprovar uma instrução curta porém concreta. O valor original, 70,
+ * reprovava 100% das respostas de um modelo desse porte.
+ */
+const MIN_GUIDANCE_LENGTH = 35;
+
+/**
+ * Nomeia a primeira regra que reprovou a etapa, ou `null` se ela passou.
+ * Um booleano diz que o plano foi recusado; isto diz por quê.
+ */
+function describeTaskRejection(
+    taskToCheck: PlannedTask,
+    input: PlannerInput,
+    profile: ObjectiveProfile,
+): string | null {
+    const completeText = `${taskToCheck.title} ${taskToCheck.reason} ${taskToCheck.howToStudy}`;
+    const reasonLength = taskToCheck.reason.trim().length;
+    const guidanceLength = taskToCheck.howToStudy.trim().length;
+
+    /** O tema é conferido no plano inteiro por `planStaysOnTopic`, não aqui. */
+    if (containsPlaceholder(completeText)) return "texto de exemplo (placeholder)";
+    if (containsUnexpectedLegalTopic(completeText, profile)) {
+        return "virou assunto jurídico sem o pedido ser jurídico";
+    }
+    if (!hasFocusedTitle(taskToCheck.title, input)) {
+        return `título com ${taskToCheck.title.trim().length} caracteres fora da faixa 8–100, ou repetindo o pedido`;
+    }
+    /**
+     * `reason` vazio é resultado do descarte de duplicata feito na leitura, não
+     * descuido do modelo. A etapa continua válida pelo `howToStudy`, que é a
+     * parte acionável — recusá-la aqui devolveria o plano genérico à tela.
+     */
+    if (reasonLength > 0 && reasonLength < MIN_REASON_LENGTH) {
+        return `reason curto: ${reasonLength}/${MIN_REASON_LENGTH} caracteres`;
+    }
+    if (guidanceLength < MIN_GUIDANCE_LENGTH) {
+        return `howToStudy curto: ${guidanceLength}/${MIN_GUIDANCE_LENGTH} caracteres`;
+    }
+    if (!ACTION_PATTERN.test(normalizeForComparison(taskToCheck.howToStudy))) {
+        return "howToStudy sem nenhum verbo de ação reconhecido";
+    }
+
+    return null;
 }
 
 /** Aprova apenas etapas específicas, detalhadas e conectadas ao pedido. */
@@ -726,14 +820,7 @@ function isValidGeneratedTask(
     input: PlannerInput,
     profile: ObjectiveProfile,
 ): boolean {
-    const completeText = `${taskToCheck.title} ${taskToCheck.reason} ${taskToCheck.howToStudy}`;
-    /** O tema é conferido no plano inteiro por `planStaysOnTopic`, não aqui. */
-    return (
-        !containsPlaceholder(completeText) &&
-        !containsUnexpectedLegalTopic(completeText, profile) &&
-        hasFocusedTitle(taskToCheck.title, input) &&
-        hasUsefulDetail(taskToCheck)
-    );
+    return describeTaskRejection(taskToCheck, input, profile) === null;
 }
 
 /** Remove Markdown ou raciocínio extra antes de tentar interpretar o JSON. */
@@ -779,10 +866,21 @@ function parseGeneratedPlan(rawText: string, input: PlannerInput): StudyPlan {
                 return null;
             }
             const estimatedMinutes = Number(candidate.estimatedMinutes);
+            const reason = candidate.reason.trim();
+            const howToStudy = candidate.howToStudy.trim();
+            /**
+             * O prompt pede coisas diferentes nos dois campos: `reason` justifica
+             * a posição da etapa e `howToStudy` diz como executá-la. Um modelo
+             * pequeno copia a mesma frase nos dois, e a tela mostrava o texto
+             * repetido como se fosse conteúdo. Fica o acionável; a cópia sai.
+             */
+            const isDuplicatedField =
+                normalizeForComparison(reason) === normalizeForComparison(howToStudy);
+
             return {
                 title: candidate.title.trim(),
-                reason: candidate.reason.trim(),
-                howToStudy: candidate.howToStudy.trim(),
+                reason: isDuplicatedField ? "" : reason,
+                howToStudy,
                 estimatedMinutes: Number.isFinite(estimatedMinutes)
                     ? Math.min(minutes, Math.max(10, Math.round(estimatedMinutes)))
                     : minutes,
@@ -815,47 +913,112 @@ function uniqueTasks(tasks: PlannedTask[]): PlannedTask[] {
 }
 
 /**
- * Mescla personalização da IA com a garantia local. Até uma resposta vazia,
- * genérica ou quebrada termina em quatro tarefas utilizáveis.
+ * A IA escreve o plano; as regras existem como rede, não como formato. Uma
+ * resposta vazia, genérica ou quebrada ainda termina em um plano utilizável,
+ * mas qualquer etapa que o modelo acerte chega intacta à tela.
  */
 export function createResilientPlan(rawText: string, input: PlannerInput): StudyPlan {
     const fallback = createFallbackPlan(input);
     const profile = analyzeObjective(input.objective);
 
-    try {
-        const generated = parseGeneratedPlan(rawText, input);
-        const approvedTasks = uniqueTasks(
-            generated.tasks.filter((item) => isValidGeneratedTask(item, input, profile)),
-        );
-        const isPresentableText = (text: string): boolean =>
-            text.trim().length >= 35 &&
-            !containsPlaceholder(text) &&
-            !containsUnexpectedLegalTopic(text, profile);
+    /** Sem texto nenhum modelo respondeu: não há recusa a explicar. */
+    if (!rawText.trim()) {
+        return { ...fallback, tasksOrigin: "fallback" };
+    }
 
-        const validGeneratedTip = generated.tips.find(isPresentableText);
+    let generated: StudyPlan;
+    try {
+        generated = parseGeneratedPlan(rawText, input);
+    } catch (caughtError) {
+        const detail =
+            caughtError instanceof Error ? caughtError.message : "erro desconhecido";
 
         return {
-            /** A introdução da IA fala do assunto real; a local entra se ela reprovar. */
-            introduction: isPresentableText(generated.introduction)
-                ? generated.introduction.trim()
-                : fallback.introduction,
-            tips: [
-                ...fallback.tips.slice(0, 2),
-                validGeneratedTip ?? fallback.tips[2],
-            ],
-            /**
-             * Um plano parcial da IA quebraria a ordem: são quatro etapas válidas
-             * ou o fallback inteiro. O corte é `>= 4` porque uma resposta com cinco
-             * etapas boas também serve — com `=== 4` ela caía fora sem motivo.
-             */
-            tasks:
-                approvedTasks.length >= 4 && planStaysOnTopic(approvedTasks, profile)
-                    ? approvedTasks.slice(0, 4)
-                    : fallback.tasks,
+            ...fallback,
+            tasksOrigin: "fallback",
+            /** JSON cortado no meio é o sintoma clássico de `max_tokens` curto. */
+            rejectionReason: `a resposta não é um JSON completo (${detail}) — provavelmente foi cortada antes do fim`,
         };
-    } catch {
-        return fallback;
     }
+
+    const isPresentableText = (text: string): boolean =>
+        text.trim().length >= 35 &&
+        !containsPlaceholder(text) &&
+        !containsUnexpectedLegalTopic(text, profile);
+
+    /**
+     * As dicas da IA valem todas. Antes duas das três vinham sempre do plano de
+     * regras, então mesmo um plano 100% da IA exibia dois textos genéricos fixos.
+     */
+    const generatedTips = generated.tips.filter(isPresentableText);
+
+    /** Guarda a regra que barrou cada etapa antes de descartá-las. */
+    const rejections = generated.tasks
+        .map((item) => describeTaskRejection(item, input, profile))
+        .filter((item): item is string => item !== null);
+    const approvedTasks = uniqueTasks(
+        generated.tasks.filter((item) => isValidGeneratedTask(item, input, profile)),
+    );
+
+    const staysOnTopic = planStaysOnTopic(approvedTasks, profile);
+
+    /**
+     * A ordem de preferência é a IA primeiro. O plano de regras deixou de ser o
+     * formato obrigatório e virou rede de segurança: ele só aparece quando o
+     * modelo não entregou nada aproveitável.
+     *
+     * Isso inclui abrir mão das quatro etapas fixas. Um plano com três etapas
+     * pensadas para o pedido real é melhor que quatro moldes preenchidos, e
+     * completar um plano bom só para bater a contagem devolvia a genérica à tela.
+     */
+    let tasks: PlannedTask[];
+    let tasksOrigin: NonNullable<StudyPlan["tasksOrigin"]>;
+    let rejectionReason: string | undefined;
+
+    if (!staysOnTopic) {
+        tasks = fallback.tasks;
+        tasksOrigin = "fallback";
+        /** Sem as palavras esperadas a recusa é impossível de conferir. */
+        rejectionReason = `nenhuma etapa citou o assunto do pedido (procurava o radical de: ${profile.keywords.join(", ") || "nenhuma palavra-chave extraída"})`;
+    } else if (approvedTasks.length === 0) {
+        /** Só aqui o plano de regras assume sozinho: a IA não entregou nada usável. */
+        tasks = fallback.tasks;
+        tasksOrigin = "fallback";
+        rejectionReason = `nenhuma das ${generated.tasks.length} etapas passou — ${rejections.join("; ") || "sem detalhe"}`;
+    } else if (approvedTasks.length >= MIN_AI_TASKS) {
+        /** O plano é da IA e do tamanho que ela julgou necessário. */
+        tasks = approvedTasks.slice(0, MAX_AI_TASKS);
+        tasksOrigin = "ai";
+
+        /** Etapas recusadas ainda interessam: são o sinal para ajustar o prompt. */
+        if (rejections.length) {
+            rejectionReason = `${rejections.length} etapa(s) da IA descartadas — ${rejections.join("; ")}`;
+        }
+    } else {
+        /**
+         * Uma única etapa aprovada não sustenta um plano, mas jogá-la fora seria
+         * voltar ao genérico. O complemento vem do FIM do plano de regras: as
+         * últimas etapas são execução e conferência, que fecham bem depois da IA.
+         * Puxar do início traria "Definir o resultado esperado" para a última
+         * posição e quebraria a progressão.
+         */
+        const missing = PLAN_TASK_COUNT - approvedTasks.length;
+        tasks = [...approvedTasks, ...fallback.tasks.slice(-missing)];
+        tasksOrigin = "mixed";
+        rejectionReason = `${missing} etapa(s) completadas pelas regras — ${rejections.join("; ") || "a IA devolveu menos etapas do que o pedido"}`;
+    }
+
+    return {
+        /** A introdução da IA fala do assunto real; a local entra se ela reprovar. */
+        introduction: isPresentableText(generated.introduction)
+            ? generated.introduction.trim()
+            : fallback.introduction,
+        /** O plano de regras só escreve as dicas quando a IA não escreveu nenhuma. */
+        tips: generatedTips.length ? generatedTips.slice(0, 3) : fallback.tips,
+        tasks,
+        tasksOrigin,
+        rejectionReason,
+    };
 }
 
 /** Nome amigável da intenção para o prompt em português. */
@@ -899,13 +1062,14 @@ LEITURA JÁ FEITA PELO APLICATIVO:
 - prazo: ${input.deadline || "não informado"}
 - duração máxima de cada etapa: ${getSessionMinutes(input.dailyMinutes)} minutos
 
-Crie exatamente 4 etapas em ordem de execução. Cada etapa deve produzir um resultado verificável e cobrir os requisitos obrigatórios.
+Crie de 3 a 5 etapas em ordem de execução — quantas o pedido realmente exigir. Cada etapa deve produzir um resultado verificável e cobrir os requisitos obrigatórios.
 Não presuma que o assunto é tecnologia. Não transforme uma expressão ambígua em outra profissão ou área sem evidência no pedido.
 Não copie o pedido inteiro nos títulos. Não use frases genéricas, placeholders, URLs ou nomes inventados de cursos e profissionais.
-Cada reason deve explicar por que a ordem faz sentido. Cada howToStudy deve ter de 1 a 3 frases com ações concretas e critério de conclusão.
+Cada reason deve explicar, em uma frase completa, por que esta etapa vem nesta posição.
+Cada howToStudy deve ter duas ou três frases e responder três coisas: o que fazer, com qual material ou pessoa, e como saber que a etapa terminou.
 Escreva somente em português brasileiro.
 
-Retorne apenas um objeto JSON. O objeto raiz precisa ter as chaves introduction, tips e tasks. Tips deve conter 3 strings. Tasks deve conter 4 objetos, cada um com title, reason, estimatedMinutes e howToStudy. Não escreva Markdown nem texto fora do JSON.`;
+Retorne apenas um objeto JSON. O objeto raiz precisa ter as chaves introduction, tips e tasks. Tips deve conter 3 strings. Tasks deve conter de 3 a 5 objetos, cada um com title, reason, estimatedMinutes e howToStudy. Não escreva Markdown nem texto fora do JSON.`;
 }
 
 /**

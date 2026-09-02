@@ -16,7 +16,16 @@ export type {
     StudyPlan,
 } from "../services/plannerIntelligence";
 
-/** Modelo pequeno e quantizado: uma escolha realista para dispositivos pessoais. */
+/**
+ * Modelo pequeno e quantizado: uma escolha realista para dispositivos pessoais.
+ *
+ * O Qwen3-1.7B foi testado aqui e não subiu — a GPU deste aparelho não tem os
+ * ~2 GB de VRAM que ele pede, contra ~1,4 GB deste. Enquanto o alvo for hardware
+ * pessoal comum, o 0.6B é o teto real, e o preço dele está documentado: escreve
+ * gramática plausível com vocabulário inventado ("casa primam" em vez de "casa
+ * da prima") e às vezes repete a mesma frase em campos diferentes. O tratamento
+ * disso vive no validador, não aqui.
+ */
 const PLANNER_MODEL_F16 = "Qwen3-0.6B-q4f16_1-MLC";
 
 /**
@@ -38,9 +47,10 @@ export type PlannerState =
  * Quem produziu o plano:
  * - `ai`    modelo baixado, rodando dentro do aparelho e sem enviar nada;
  * - `cloud` IA remota chamada pela função serverless, exige internet;
- * - `local` regras determinísticas do próprio DevTrack, sempre disponíveis.
+ * - `local` regras determinísticas do próprio DevTrack, sempre disponíveis;
+ * - `mixed` a IA acertou parte das etapas e o plano local completou o restante.
  */
-export type PlannerMode = "ai" | "cloud" | "local";
+export type PlannerMode = "ai" | "cloud" | "local" | "mixed";
 
 /** Tipos mínimos do WebGPU; o projeto não depende do pacote @webgpu/types. */
 type MinimalGpuAdapter = { features: { has(feature: string): boolean } };
@@ -70,6 +80,37 @@ const IS_APPLE_MOBILE = detectAppleMobile();
 
 /** O download só é liberado quando existe WebGPU e o aparelho aguenta o modelo. */
 const CAN_RUN_MODEL = HAS_WEBGPU && !IS_APPLE_MOBILE;
+
+/**
+ * Um download de centenas de megabytes pode parar de progredir sem lançar erro:
+ * proxy corporativo, rede que derruba a conexão, CDN bloqueada. Sem esta guarda
+ * o `state` fica em "downloading" para sempre e o botão nunca reabilita.
+ */
+const DOWNLOAD_STALL_MS = 45_000;
+
+/**
+ * Falha quando o progresso para de chegar, não quando o download demora.
+ * Um modelo grande em rede lenta continua válido enquanto avançar.
+ */
+function rejectOnStall(getLastProgressAt: () => number): {
+    promise: Promise<never>;
+    dispose: () => void;
+} {
+    let timer = 0;
+    const promise = new Promise<never>((_, reject) => {
+        timer = window.setInterval(() => {
+            if (Date.now() - getLastProgressAt() < DOWNLOAD_STALL_MS) return;
+
+            reject(
+                new Error(
+                    "o download do modelo travou (nenhum progresso em 45s) — rede, proxy ou bloqueio ao huggingface.co",
+                ),
+            );
+        }, 5_000);
+    });
+
+    return { promise, dispose: () => window.clearInterval(timer) };
+}
 
 /** Explica em uma frase por que o modelo local está fora deste aparelho. */
 const NO_LOCAL_MODEL_REASON = IS_APPLE_MOBILE
@@ -101,7 +142,9 @@ async function pickPlannerModel(): Promise<string> {
  */
 export function useLocalPlanner() {
     const engineRef = useRef<MLCEngine | null>(null);
-    const [state, setState] = useState<PlannerState>("idle");
+    const [state, setState] = useState<PlannerState>(
+        CAN_RUN_MODEL ? "idle" : "unavailable",
+    );
     const [mode, setMode] = useState<PlannerMode>(CAN_RUN_MODEL ? "ai" : "cloud");
     const [status, setStatus] = useState(
         CAN_RUN_MODEL
@@ -110,7 +153,13 @@ export function useLocalPlanner() {
     );
     const [downloadProgress, setDownloadProgress] = useState(0);
     const [generationProgress, setGenerationProgress] = useState(0);
-    const [error, setError] = useState<string | null>(null);
+    /**
+     * Por que o degrau local não respondeu. Fica separado do `status` porque o
+     * plano ainda chega pelos degraus seguintes: o pedido não falhou, o modelo sim.
+     */
+    const [error, setError] = useState<string | null>(
+        CAN_RUN_MODEL ? null : NO_LOCAL_MODEL_REASON,
+    );
 
     /** Mantido no retorno para não quebrar os componentes que já consultam a flag. */
     const isSupported = CAN_RUN_MODEL;
@@ -135,16 +184,31 @@ export function useLocalPlanner() {
 
         /** O import dinâmico evita carregar os 6 MB do motor na abertura do app. */
         const webllm = await import("@mlc-ai/web-llm");
-        const engine = await webllm.CreateMLCEngine(modelId, {
-            initProgressCallback: (progress) => {
-                /** WebLLM entrega 0 a 1; a barra visual trabalha de 0 a 100. */
-                const percentage = Math.round(
-                    Math.min(1, Math.max(0, progress.progress)) * 100,
-                );
-                setDownloadProgress(percentage);
-                setStatus(progress.text);
-            },
-        });
+
+        /** O relógio da guarda reinicia a cada sinal de vida do download. */
+        let lastProgressAt = Date.now();
+        const stall = rejectOnStall(() => lastProgressAt);
+
+        let engine: MLCEngine;
+        try {
+            engine = await Promise.race([
+                webllm.CreateMLCEngine(modelId, {
+                    initProgressCallback: (progress) => {
+                        lastProgressAt = Date.now();
+                        /** WebLLM entrega 0 a 1; a barra visual trabalha de 0 a 100. */
+                        const percentage = Math.round(
+                            Math.min(1, Math.max(0, progress.progress)) * 100,
+                        );
+                        setDownloadProgress(percentage);
+                        setStatus(progress.text);
+                    },
+                }),
+                stall.promise,
+            ]);
+        } finally {
+            /** Sem isto o intervalo sobrevive ao sucesso e derruba o próximo pedido. */
+            stall.dispose();
+        }
 
         engineRef.current = engine;
         setDownloadProgress(100);
@@ -173,8 +237,13 @@ export function useLocalPlanner() {
                 /** Baixa aleatoriedade ajuda um modelo pequeno a seguir o contrato. */
                 temperature: 0.1,
                 repetition_penalty: 1.05,
-                /** Quatro etapas detalhadas cabem sem prolongar demais a geração. */
-                max_tokens: 800,
+                /**
+                 * O validador exige 4 etapas com `reason` de 28+ e `howToStudy`
+                 * de 70+ caracteres, mais introdução e 3 dicas — tudo em JSON e
+                 * em português. Com 800 o JSON terminava cortado e o `JSON.parse`
+                 * derrubava o plano inteiro para o fallback.
+                 */
+                max_tokens: 1800,
                 /** Evita gastar tempo com tokens internos invisíveis do Qwen3. */
                 extra_body: { enable_thinking: false },
                 stream: true,
@@ -244,7 +313,7 @@ export function useLocalPlanner() {
      */
     const createPlan = useCallback(
         async (input: PlannerInput): Promise<StudyPlan> => {
-            setError(null);
+            setError(CAN_RUN_MODEL ? null : NO_LOCAL_MODEL_REASON);
             setGenerationProgress(0);
 
             /** Guarda o motivo de cada degrau recusado para explicar o desfecho. */
@@ -256,20 +325,53 @@ export function useLocalPlanner() {
 
                     if (content.trim()) {
                         const plan = createResilientPlan(content, input);
-                        setMode("ai");
                         setGenerationProgress(100);
                         setState("ready");
-                        setStatus("Plano criado no seu aparelho. Confira antes de salvar.");
+
+                        /**
+                         * O modelo ter respondido não significa que a resposta dele
+                         * está na tela: se o validador recusou, quem escreveu as
+                         * etapas foi o DevTrack, e a etiqueta precisa dizer isso.
+                         */
+                        if (plan.tasksOrigin === "ai" || plan.tasksOrigin === "mixed") {
+                            setMode(plan.tasksOrigin === "ai" ? "ai" : "mixed");
+                            setStatus(
+                                plan.tasksOrigin === "ai"
+                                    ? "Plano criado no seu aparelho. Confira antes de salvar."
+                                    : "Plano criado no seu aparelho; as etapas que faltaram foram completadas pelas regras do DevTrack.",
+                            );
+                            /** Em plano misto o aviso é informativo, não erro. */
+                            if (plan.rejectionReason) {
+                                console.info("[DevTrack] plano misto:", plan.rejectionReason);
+                            }
+                            return plan;
+                        }
+
+                        console.warn(
+                            "[DevTrack] etapas da IA recusadas:",
+                            plan.rejectionReason,
+                        );
+                        setMode("local");
+                        setStatus(
+                            "O modelo local respondeu, mas as etapas foram recusadas na validação. Mostrando o plano das regras do DevTrack.",
+                        );
+                        setError(`Etapas da IA recusadas: ${plan.rejectionReason}`);
                         return plan;
                     }
 
                     skippedReasons.push("o modelo local não produziu texto");
+                    setError("O modelo local rodou, mas devolveu texto vazio.");
                 } catch (caughtError) {
-                    skippedReasons.push(
+                    /** O objeto cru vai para o console: a mensagem sozinha perde a pilha. */
+                    console.error("[DevTrack] modelo local falhou:", caughtError);
+
+                    const reason =
                         caughtError instanceof Error
                             ? caughtError.message
-                            : "o modelo local falhou",
-                    );
+                            : "o modelo local falhou";
+
+                    skippedReasons.push(reason);
+                    setError(`Modelo local indisponível: ${reason}`);
                 }
             } else {
                 skippedReasons.push(NO_LOCAL_MODEL_REASON);
@@ -278,12 +380,30 @@ export function useLocalPlanner() {
             try {
                 const content = await runCloudModel(input);
                 const plan = createResilientPlan(content, input);
-                setMode("cloud");
                 setGenerationProgress(100);
                 setState("ready");
-                setStatus("Plano criado pela IA na nuvem. Confira antes de salvar.");
+
+                /** Mesma honestidade do degrau local: etiqueta segue a origem real. */
+                if (plan.tasksOrigin === "ai" || plan.tasksOrigin === "mixed") {
+                    setMode(plan.tasksOrigin === "ai" ? "cloud" : "mixed");
+                    setStatus(
+                        plan.tasksOrigin === "ai"
+                            ? "Plano criado pela IA na nuvem. Confira antes de salvar."
+                            : "Plano criado pela IA na nuvem; as etapas que faltaram foram completadas pelas regras do DevTrack.",
+                    );
+                    return plan;
+                }
+
+                console.warn("[DevTrack] etapas da nuvem recusadas:", plan.rejectionReason);
+                setMode("local");
+                setStatus(
+                    "A IA na nuvem respondeu, mas as etapas foram recusadas na validação. Mostrando o plano das regras do DevTrack.",
+                );
+                setError(`Etapas da nuvem recusadas: ${plan.rejectionReason}`);
                 return plan;
             } catch (caughtError) {
+                console.error("[DevTrack] IA na nuvem falhou:", caughtError);
+
                 skippedReasons.push(
                     caughtError instanceof Error
                         ? caughtError.message

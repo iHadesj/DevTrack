@@ -199,6 +199,12 @@ export const TaskText = styled.div<{ $done: boolean }>`
   min-width: 0; flex: 1;
   strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; text-decoration: ${({ $done }) => ($done ? "line-through" : "none")}; }
   span { display: block; margin-top: 4px; color: ${({ theme }) => theme.colors.muted}; font-size: 10px; }
+  /**
+   * O "como fazer" do plano tem duas ou três frases. Duas linhas dão contexto
+   * suficiente na lista sem transformar cada tarefa em um bloco de texto — o
+   * atributo \`title\` entrega o restante ao passar o mouse.
+   */
+  p { display: -webkit-box; overflow: hidden; margin: 6px 0 0; color: ${({ theme }) => theme.colors.muted}; font-size: 11px; line-height: 1.4; white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 `;
 export const AreaPill = styled.span<{ $area: "faculdade" | "estagio" | "pessoal" }>`
   padding: 5px 8px; color: ${({ theme }) => theme.colors.ink}; background: ${({ $area, theme }) => ($area === "faculdade" ? theme.colors.yellow : $area === "estagio" ? theme.colors.blue : theme.colors.green)}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.pill}; font-size: 9px; font-weight: 900; text-transform: uppercase;
@@ -292,8 +298,19 @@ export const FormField = styled.label`
   display: grid; gap: 7px; color: ${({ theme }) => theme.colors.ink}; font-size: 11px; font-weight: 850;
   input, select, textarea { width: 100%; padding: 10px 11px; resize: vertical; color: ${({ theme }) => theme.colors.ink}; background: ${({ theme }) => theme.colors.canvas}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.block}; }
 `;
-export const ModalOverlay = styled.div`position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(21, 23, 25, .65);`;
-export const ModalContainer = styled.div`${motifHost}; width: min(100%, 620px); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden; background: ${({ theme }) => theme.colors.surface}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.block}; box-shadow: 10px 10px 0 ${({ theme }) => theme.colors.blue};`;
+export const ModalOverlay = styled.div`
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: rgba(21, 23, 25, .65);
+  /**
+   * O wrapper de animação do framer-motion precisa de largura própria. Sem ela
+   * ele encolhe para \`max-content\`, muda de tamanho a cada mudança de conteúdo
+   * — e o \`place-items: center\` reposiciona o modal a cada uma. Pior: quando o
+   * conteúdo passa da tela, o item centralizado transborda para os dois lados e
+   * a borda esquerda fica fora de alcance.
+   */
+  > div { width: min(100%, 620px); }
+`;
+/** A largura vem do wrapper; aqui só resta preencher o espaço já reservado. */
+export const ModalContainer = styled.div`${motifHost}; width: 100%; max-height: calc(100dvh - 40px); display: flex; flex-direction: column; overflow: hidden; background: ${({ theme }) => theme.colors.surface}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.block}; box-shadow: 10px 10px 0 ${({ theme }) => theme.colors.blue};`;
 export const ModalHeader = styled.header`flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 22px 16px; background: ${({ theme }) => theme.colors.surface}; border-bottom: 2px solid ${({ theme }) => theme.colors.ink};`;
 export const ModalTitle = styled.h2`margin: 0; font-size: 23px; letter-spacing: -1.3px;`;
 export const ModalDescription = styled.p`margin: 6px 0 0; color: ${({ theme }) => theme.colors.muted}; font-size: 12px; line-height: 1.4;`;
@@ -378,8 +395,13 @@ export const ResponsiveStyles = createGlobalStyle`
     ${PlannerHeader} h2 svg { width: 17px; height: 17px; }
     ${PlannerHeader} p { max-width: 320px; margin-top: 6px; font-size: 9px; line-height: 1.4; }
     ${PlannerMeta} { margin-bottom: 5px; font-size: 8px; }
-    ${Form} { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 9px; }
-    ${Form} > ${FormField}:first-child, ${Form} > ${PrimaryButton} { grid-column: 1 / -1; }
+    /**
+     * Duas colunas servem ao formulário do planejador, que tem campos curtos.
+     * Sem o escopo do ${PlannerCard} a regra vazava para os formulários do
+     * CreateModal e espremia "Como fazer" e "Área" lado a lado num modal estreito.
+     */
+    ${PlannerCard} ${Form} { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 9px; }
+    ${PlannerCard} ${Form} > ${FormField}:first-child, ${PlannerCard} ${Form} > ${PrimaryButton} { grid-column: 1 / -1; }
     ${FormField} { min-width: 0; gap: 5px; font-size: 9px; }
     ${FormField} input, ${FormField} textarea { min-width: 0; padding: 9px 10px; font-size: 10px; line-height: 1.35; }
     ${FormField} textarea { min-height: 58px; }
@@ -394,9 +416,14 @@ export const ResponsiveStyles = createGlobalStyle`
     ${SuggestionReason} { font-size: 9px; line-height: 1.45; }
     ${ResourceLinks} { margin-top: 8px; }
 
-    ${ModalOverlay} { align-items: end; padding: 10px; }
-    ${ModalOverlay} > div { width: 100%; }
-    ${ModalContainer} { width: 100%; max-height: 82dvh; box-shadow: 0 -6px 0 ${({ theme }) => theme.colors.blue}; }
+    /**
+     * Ancorar no rodapé colocava o modal exatamente onde o teclado nasce, e
+     * \`position: fixed\` não encolhe com ele: o teclado cobria os campos. Com o
+     * modal centralizado, a área que sobra acima do teclado é justamente a que
+     * ele ocupa. O \`interactive-widget\` no index.html completa o conserto.
+     */
+    ${ModalOverlay} { align-items: center; padding: 10px; }
+    ${ModalContainer} { max-height: calc(100dvh - 20px); box-shadow: 5px 5px 0 ${({ theme }) => theme.colors.blue}; }
     ${ModalHeader} { align-items: center; padding: 12px 14px 10px; }
     ${ModalTitle} { font-size: 19px; letter-spacing: -1px; }
     ${ModalDescription} { display: none; }
@@ -406,9 +433,9 @@ export const ResponsiveStyles = createGlobalStyle`
 
   /** Celulares muito estreitos voltam os campos auxiliares para uma coluna. */
   @media (max-width: 370px) {
-    ${Form} { grid-template-columns: 1fr; }
-    ${Form} > ${FormField}:first-child, ${Form} > ${PrimaryButton} { grid-column: auto; }
+    ${PlannerCard} ${Form} { grid-template-columns: 1fr; }
+    ${PlannerCard} ${Form} > ${FormField}:first-child, ${PlannerCard} ${Form} > ${PrimaryButton} { grid-column: auto; }
     ${ModalOverlay} { padding: 6px; }
-    ${ModalContainer} { max-height: 86dvh; }
+    ${ModalContainer} { max-height: calc(100dvh - 12px); }
   }
 `;

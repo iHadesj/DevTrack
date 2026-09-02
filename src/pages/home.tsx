@@ -206,6 +206,8 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                                 ? `Prazo: ${formatDate(task.dueDate)}`
                                 : "Sem prazo definido"}
                         </span>
+                        {/* Ausente nas tarefas criadas antes do campo existir. */}
+                        {task.details && <p title={task.details}>{task.details}</p>}
                     </TaskText>
                     <AreaPill $area={task.area}>{task.area}</AreaPill>
                 </TaskRow>

@@ -191,6 +191,14 @@ export function StudyPlanner({
                         title: task.title,
                         area: taskArea,
                         dueDate: getDueDate(deadline),
+                        /**
+                         * O plano só existia enquanto o modal estava aberto: a tarefa
+                         * salva perdia o "como fazer" e virava um título solto.
+                         * `filter(Boolean)` cobre o `reason` vazio de etapa duplicada.
+                         */
+                        details: [task.reason, task.howToStudy]
+                            .filter(Boolean)
+                            .join("\n\n"),
                     }),
                 ),
             );
@@ -223,7 +231,9 @@ export function StudyPlanner({
             ? "NESTE APARELHO"
             : mode === "cloud"
                 ? "IA NA NUVEM"
-                : "REGRAS DO DEVTRACK";
+                : mode === "mixed"
+                    ? "IA + REGRAS DO DEVTRACK"
+                    : "REGRAS DO DEVTRACK";
 
     return (
         <PlannerCard
@@ -348,7 +358,12 @@ export function StudyPlanner({
                     </Form>
             </>
 
-            <PlannerStatus $error={Boolean(error)}>{error ?? status}</PlannerStatus>
+            {/*
+              * O status conta o desfecho; o erro conta por que o degrau local caiu.
+              * Antes um substituía o outro, então a causa nunca chegava à tela.
+              */}
+            <PlannerStatus>{status}</PlannerStatus>
+            {error && <PlannerStatus $error>{error}</PlannerStatus>}
 
             {introduction && (
                 <PlanGuidance>
@@ -408,9 +423,12 @@ export function StudyPlanner({
                                     </SuggestionDetailsToggle>
                                     <SuggestionDetails $open={isExpanded}>
                                         <div>
-                                            <SuggestionReason>
-                                                {task.reason}
-                                            </SuggestionReason>
+                                            {/* Vazio quando era cópia do "Como fazer": não rende linha em branco. */}
+                                            {task.reason && (
+                                                <SuggestionReason>
+                                                    {task.reason}
+                                                </SuggestionReason>
+                                            )}
                                             <SuggestionReason>
                                                 <b>Como fazer:</b> {task.howToStudy}
                                             </SuggestionReason>

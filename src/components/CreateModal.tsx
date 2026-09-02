@@ -20,6 +20,7 @@ const modalCopy: Record<CreateMode, { title: string; description: string; button
 export function CreateModal({ mode, today, onClose, onCreateTask, onCreateStudySession, onCreateInternshipEntry }: CreateModalProps) {
     const [isSaving, setIsSaving] = useState(false);
     const [taskTitle, setTaskTitle] = useState("");
+    const [taskDetails, setTaskDetails] = useState("");
     const [area, setArea] = useState<Area>("faculdade");
     const [dueDate, setDueDate] = useState("");
     const [subject, setSubject] = useState("");
@@ -34,7 +35,8 @@ export function CreateModal({ mode, today, onClose, onCreateTask, onCreateStudyS
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setIsSaving(true);
-        if (mode === "task") await onCreateTask({ title: taskTitle.trim(), area, dueDate: dueDate || undefined });
+        /** String vazia vira `undefined` para o banco não guardar descrição em branco. */
+        if (mode === "task") await onCreateTask({ title: taskTitle.trim(), area, dueDate: dueDate || undefined, details: taskDetails.trim() || undefined });
         if (mode === "study") {
             /** Cada linha não vazia vira um link; isso permite colar vários materiais de uma vez. */
             const studyLinks = studyLinksText
@@ -57,7 +59,7 @@ export function CreateModal({ mode, today, onClose, onCreateTask, onCreateStudyS
 
     /** Retorna somente os campos específicos do tipo de registro selecionado. */
     const fields = () => {
-        if (mode === "task") return <><FormField>Tarefa<input required autoFocus value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="Ex.: revisar API REST" /></FormField><FormField>Área<select value={area} onChange={(event) => setArea(event.target.value as Area)}><option value="faculdade">Faculdade</option><option value="estagio">Estágio</option><option value="pessoal">Pessoal</option></select></FormField><FormField>Prazo (opcional)<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></FormField></>;
+        if (mode === "task") return <><FormField>Tarefa<input required autoFocus value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="Ex.: revisar API REST" /></FormField><FormField>Como fazer (opcional)<textarea rows={3} value={taskDetails} onChange={(event) => setTaskDetails(event.target.value)} placeholder="Ex.: reler a doc de autenticação e refazer o fluxo de login do zero." /></FormField><FormField>Área<select value={area} onChange={(event) => setArea(event.target.value as Area)}><option value="faculdade">Faculdade</option><option value="estagio">Estágio</option><option value="pessoal">Pessoal</option></select></FormField><FormField>Prazo (opcional)<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></FormField></>;
         if (mode === "study") return <><FormField>Assunto<input required autoFocus value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Ex.: React e hooks" /></FormField><FormField>Minutos de foco<input required min="1" max="720" type="number" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></FormField><FormField>Links de estudo (opcional)<textarea rows={3} value={studyLinksText} onChange={(event) => setStudyLinksText(event.target.value)} placeholder={"Um link por linha\nhttps://react.dev/learn"} /></FormField><FormField>Observações (opcional)<textarea rows={3} value={studyNotes} onChange={(event) => setStudyNotes(event.target.value)} placeholder="Ex.: entendi melhor como o useEffect reage às dependências." /></FormField></>;
         return <><FormField>O que você fez?<input required autoFocus value={entryTitle} onChange={(event) => setEntryTitle(event.target.value)} placeholder="Ex.: corrigi o fluxo de login" /></FormField><FormField>O que aprendeu?<textarea required rows={3} value={learning} onChange={(event) => setLearning(event.target.value)} placeholder="Ex.: como o refresh token funciona" /></FormField><FormField>Ficou travado em algo? (opcional)<textarea rows={2} value={blocker} onChange={(event) => setBlocker(event.target.value)} placeholder="Ex.: ainda preciso entender CORS" /></FormField></>;
     };

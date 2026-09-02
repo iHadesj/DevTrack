@@ -17,6 +17,12 @@ export interface Task {
     area: Area;
     status: TaskStatus;
     dueDate?: string;
+    /**
+     * Como executar a tarefa: vem do plano do assistente ou do campo livre do
+     * formulário. Opcional porque as tarefas criadas antes deste campo existir
+     * continuam válidas no banco — o IndexedDB não tem schema para migrar.
+     */
+    details?: string;
     createdAt: string;
     updatedAt: string;
     syncStatus: SyncStatus;
@@ -57,7 +63,7 @@ export interface SyncOperation {
 }
 
 /** Dados que chegam do formulário de criação de tarefa, antes do banco completar os metadados. */
-export type NewTask = Pick<Task, "title" | "area" | "dueDate">;
+export type NewTask = Pick<Task, "title" | "area" | "dueDate" | "details">;
 
 /** Dados digitados ao registrar tempo de estudo. */
 export type NewStudySession = Pick<
