@@ -1,31 +1,23 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
     BookOpenCheck,
-    BrainCircuit,
     BriefcaseBusiness,
     Check,
     CheckSquare2,
     Moon,
     Plus,
-    Sparkles,
     Sun,
     Timer,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { BauhausBand, BauhausMotif } from "../components/BauhausMotif";
 import { CreateModal, type CreateMode } from "../components/CreateModal";
-import { AssistantModal } from "../components/AssistantModal";
 import { Sidebar, type AppView } from "../components/Sidebar";
 import { StatCard } from "../components/StatCard";
-import { StudyPlanner } from "../components/StudyPlanner";
 import { useDevTrack } from "../hooks/useDevTrack";
-import { useAssistant } from "../context/AssistantContext";
 import type { Task } from "../interfaces";
 import {
     AppShell,
-    AssistantButton,
-    AssistantPromo,
-    AssistantPromoIcon,
     AreaPill,
     ContentGrid,
     DashedRule,
@@ -48,7 +40,6 @@ import {
     TaskList,
     TaskRow,
     TaskText,
-    StudyLayout,
     TopActions,
     Topbar,
     ViewPanel,
@@ -137,8 +128,6 @@ function formatDate(date: string): string {
 export function Home({ mode, onToggleTheme }: HomeProps) {
     const [activeView, setActiveView] = useState<AppView>("Hoje");
     const [modalMode, setModalMode] = useState<CreateMode | null>(null);
-    const [assistantOpen, setAssistantOpen] = useState(false);
-    const { isModelReady } = useAssistant();
     const {
         tasks,
         studySessions,
@@ -236,18 +225,11 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                 </WelcomeText>
                 <WelcomeActions>
                     <PrimaryButton type="button" onClick={() => setModalMode("task")}>
-                        <Sparkles size={16} />
+                        <Plus size={16} />
                         Criar meu primeiro passo
                     </PrimaryButton>
-                    <AssistantButton type="button" onClick={() => setAssistantOpen(true)}>
-                        <BrainCircuit size={16} />
-                        Conhecer o assistente
-                    </AssistantButton>
                 </WelcomeActions>
-                <WelcomeNote>
-                    Sem cadastro. A IA precisa de internet apenas no primeiro download;
-                    depois, também funciona offline.
-                </WelcomeNote>
+                <WelcomeNote>Sem cadastro e com seus dados guardados neste aparelho.</WelcomeNote>
             </WelcomeHero>
         </motion.div>
     );
@@ -282,27 +264,6 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
             </motion.div>
 
             <motion.div {...entrance} transition={{ ...entrance.transition, delay: 0.14 }}>
-                <AssistantPromo>
-                    <BauhausMotif variant="promo" />
-                    <AssistantPromoIcon>
-                        <BrainCircuit size={21} />
-                    </AssistantPromoIcon>
-                    <div>
-                        <h2>Seu assistente local transforma objetivo em próximos passos.</h2>
-                        <p>
-                            {isModelReady
-                                ? "Já baixado neste aparelho: pronto para criar planos offline."
-                                : "Ainda não baixado: o primeiro uso precisa de internet; depois funciona offline."}
-                        </p>
-                    </div>
-                    <AssistantButton type="button" onClick={() => setAssistantOpen(true)}>
-                        <Sparkles size={15} />
-                        {isModelReady ? "Abrir assistente" : "Ver como funciona"}
-                    </AssistantButton>
-                </AssistantPromo>
-            </motion.div>
-
-            <motion.div {...entrance} transition={{ ...entrance.transition, delay: 0.18 }}>
                 <ContentGrid>
                     <Panel>
                         <PanelHeading>
@@ -381,9 +342,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
 
         if (activeView === "Estudos") {
             return (
-                <StudyLayout>
-                    <StudyPlanner onCreateTask={createTask} />
-                    <ViewPanel>
+                <ViewPanel>
                     <BauhausMotif variant="journal" />
                     <PanelHeading>
                         <div>
@@ -418,8 +377,7 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                             </EmptyState>
                         )}
                     </EntryList>
-                    </ViewPanel>
-                </StudyLayout>
+                </ViewPanel>
             );
         }
 
@@ -478,14 +436,6 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                                 <PageTitle>{copy.title}</PageTitle>
                             </div>
                             <TopActions>
-                                <AssistantButton
-                                    type="button"
-                                    aria-label="Abrir assistente"
-                                    onClick={() => setAssistantOpen(true)}
-                                >
-                                    <BrainCircuit size={16} />
-                                    <span className="action-label">Assistente</span>
-                                </AssistantButton>
                                 <IconButton
                                     type="button"
                                     aria-label={
@@ -537,16 +487,6 @@ export function Home({ mode, onToggleTheme }: HomeProps) {
                         onCreateTask={createTask}
                         onCreateStudySession={createStudySession}
                         onCreateInternshipEntry={createInternshipEntry}
-                    />
-                )}
-            </AnimatePresence>
-
-            <AnimatePresence>
-                {assistantOpen && (
-                    <AssistantModal
-                        activeView={activeView}
-                        onClose={() => setAssistantOpen(false)}
-                        onCreateTask={createTask}
                     />
                 )}
             </AnimatePresence>

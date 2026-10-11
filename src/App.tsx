@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { ThemeProvider } from "styled-components";
-import { AssistantProvider } from "./context/AssistantContext";
 import { Home } from "./pages/home";
 import { GlobalStyle, ResponsiveStyles } from "./styles";
 import { themes, type ThemeMode } from "./theme";
@@ -22,9 +21,7 @@ function App() {
         <ThemeProvider theme={theme}>
             <GlobalStyle />
             <ResponsiveStyles />
-            <AssistantProvider>
-                <Home mode={mode} onToggleTheme={toggleTheme} />
-            </AssistantProvider>
+            <Home mode={mode} onToggleTheme={toggleTheme} />
         </ThemeProvider>
     );
 }

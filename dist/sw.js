@@ -12,10 +12,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
 
-/**
- * Remove apenas versões antigas do nosso shell. Caches de terceiros — como os pesos
- * do modelo guardados pelo WebLLM em `webllm/model` — precisam sobreviver ao deploy.
- */
+/** Remove apenas versões antigas do nosso shell. */
 self.addEventListener("activate", (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim()));
 });
@@ -27,10 +24,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
-  /**
-   * Download de outra origem (pesos do modelo, CDN) sai direto pelo navegador.
-   * Passar centenas de megabytes pela thread do worker só gasta memória à toa.
-   */
+  /** Recursos de outra origem seguem pelo navegador normalmente. */
   if (new URL(event.request.url).origin !== self.location.origin) return;
 
   if (event.request.mode === "navigate") {

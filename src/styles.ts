@@ -57,7 +57,7 @@ export const Eyebrow = styled.span`display: block; margin-bottom: 9px; color: ${
 export const PageTitle = styled.h1`max-width: 650px; margin: 0; font-size: clamp(31px, 4vw, 48px); font-weight: 950; line-height: .98; letter-spacing: -3px;`;
 
 /** Contextos disponíveis para o motivo geométrico; cada um tem escala e recorte próprios. */
-export type MotifVariant = "page" | "hero" | "sidebar" | "promo" | "modal" | "panel" | "stat" | "journal" | "planner";
+export type MotifVariant = "page" | "hero" | "sidebar" | "modal" | "panel" | "stat" | "journal";
 /** Vocabulário de formas primárias — o alfabeto visual da Bauhaus. */
 export type MotifShape =
     | "circle"
@@ -74,11 +74,11 @@ export type MotifShape =
 
 type MotifProps = { $variant: MotifVariant };
 /** Escala de cada contexto: as formas são as mesmas, só o tamanho relativo muda. */
-const motifScale: Record<MotifVariant, number> = { page: .72, hero: 1, sidebar: .38, promo: .5, modal: .46, panel: .44, stat: .3, journal: .5, planner: .58 };
+const motifScale: Record<MotifVariant, number> = { page: .72, hero: 1, sidebar: .38, modal: .46, panel: .44, stat: .3, journal: .5 };
 /** Recuo lateral por contexto, para o motivo não colidir com o texto do bloco. */
-const motifShift: Record<MotifVariant, string> = { page: "6%", hero: "8%", sidebar: "0%", promo: "2%", modal: "3%", panel: "4%", stat: "6%", journal: "5%", planner: "3%" };
+const motifShift: Record<MotifVariant, string> = { page: "6%", hero: "8%", sidebar: "0%", modal: "3%", panel: "4%", stat: "6%", journal: "5%" };
 /** Minimalismo é dosagem: o herói pode gritar, o painel só sussurra. */
-const motifOpacity: Record<MotifVariant, number> = { page: .16, hero: .95, sidebar: .5, promo: .55, modal: .5, panel: .2, stat: .5, journal: .22, planner: .3 };
+const motifOpacity: Record<MotifVariant, number> = { page: .16, hero: .95, sidebar: .5, modal: .5, panel: .2, stat: .5, journal: .22 };
 /**
  * Camada decorativa absoluta — o pai precisa ter `position: relative`.
  * `pointer-events: none` garante que as formas nunca roubem clique do conteúdo.
@@ -135,11 +135,6 @@ export const WelcomeText = styled.p`max-width: 445px; margin: 25px 0 0; color: #
 export const WelcomeActions = styled.div`display: flex; flex-wrap: wrap; gap: 12px; margin-top: 29px;`;
 export const WelcomeNote = styled.span`margin-top: 24px; color: #b8b7ae; font-size: 11px;`;
 export const TopActions = styled.div`display: flex; align-items: center; gap: 9px;`;
-/** Botão persistente: torna o assistente encontrável em qualquer aba. */
-export const AssistantButton = styled.button`
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 16px; color: #151713; background: ${({ theme }) => theme.colors.yellow}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.pill}; font-size: 11px; font-weight: 900; transition: transform .18s ease;
-  &:hover { transform: translateY(-2px); }
-`;
 export const IconButton = styled.button`
   display: grid; width: 42px; height: 42px; place-items: center; color: ${({ theme }) => theme.colors.ink}; background: ${({ theme }) => theme.colors.surface}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.round};
 `;
@@ -169,14 +164,6 @@ export const StatIcon = styled.span`display: grid; width: 30px; height: 30px; pl
 export const StatValue = styled.strong`margin-top: auto; font-size: 42px; line-height: 1; letter-spacing: -2.8px;`;
 export const StatDescription = styled.span`margin-top: 8px; font-size: 11px; font-weight: 650;`;
 export const ContentGrid = styled.section`display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .8fr); gap: 18px;`;
-/** Faixa da Home explica o valor da IA e seu comportamento offline antes do uso. */
-export const AssistantPromo = styled.section`
-  ${motifHost};
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; margin: 0 0 18px; padding: 18px 20px; overflow: hidden; color: #151713; background: ${({ theme }) => theme.colors.yellow}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.block};
-  h2 { margin: 0; font-size: 17px; letter-spacing: -.7px; }
-  p { margin: 4px 0 0; font-size: 11px; line-height: 1.45; }
-`;
-export const AssistantPromoIcon = styled.span`display: grid; width: 44px; height: 44px; place-items: center; color: #f8f3e8; background: #151713; border-radius: ${({ theme }) => theme.radii.round};`;
 /** Todo painel carrega um anel cortado pela quina: assinatura geométrica discreta. */
 export const Panel = styled.section`
   ${motifHost};
@@ -199,11 +186,6 @@ export const TaskText = styled.div<{ $done: boolean }>`
   min-width: 0; flex: 1;
   strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; text-decoration: ${({ $done }) => ($done ? "line-through" : "none")}; }
   span { display: block; margin-top: 4px; color: ${({ theme }) => theme.colors.muted}; font-size: 10px; }
-  /**
-   * O "como fazer" do plano tem duas ou três frases. Duas linhas dão contexto
-   * suficiente na lista sem transformar cada tarefa em um bloco de texto — o
-   * atributo \`title\` entrega o restante ao passar o mouse.
-   */
   p { display: -webkit-box; overflow: hidden; margin: 6px 0 0; color: ${({ theme }) => theme.colors.muted}; font-size: 11px; line-height: 1.4; white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 `;
 export const AreaPill = styled.span<{ $area: "faculdade" | "estagio" | "pessoal" }>`
@@ -219,80 +201,6 @@ export const EntryCard = styled.article`
 `;
 export const EmptyState = styled.p`padding: 28px 10px; margin: 0; color: ${({ theme }) => theme.colors.muted}; text-align: center; font-size: 12px;`;
 export const ViewPanel = styled(Panel)`min-height: 430px;`;
-/** Agrupa o planejador e o histórico da página de Estudos com espaçamento consistente. */
-export const StudyLayout = styled.div`display: grid; gap: 18px;`;
-/** Cartão do assistente com uma cor de marca própria, sem competir com as tarefas. */
-export const PlannerCard = styled(Panel)<{ $embedded?: boolean }>`
-  padding: ${({ $embedded }) => ($embedded ? "0" : "23px")}; background: ${({ $embedded, theme }) => ($embedded ? "transparent" : theme.colors.blue)}; border: ${({ $embedded }) => ($embedded ? "0" : "2px solid")}; border-color: ${({ theme }) => theme.colors.ink};
-  /* Sobre o azul o anel do Panel sumiria; aqui ele vira sombra da própria cor. */
-  &::after { border-color: ${({ $embedded }) => ($embedded ? "transparent" : "rgba(21, 23, 19, .16)")}; }
-`;
-export const PlannerHeader = styled.header`
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px;
-  h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 23px; letter-spacing: -1.2px; }
-  p { max-width: 570px; margin: 9px 0 0; font-size: 12px; line-height: 1.5; }
-`;
-export const PlannerMeta = styled.span`display: block; margin-bottom: 7px; font-size: 10px; font-weight: 900; letter-spacing: 1.2px;`;
-export const PlannerStatus = styled.p<{ $error?: boolean }>`
-  margin: 17px 0 0; padding: 10px 12px; color: ${({ $error }) => ($error ? "#8b1e13" : "#151713")}; background: ${({ $error }) => ($error ? "#ffd8d1" : "rgba(255, 253, 247, .72)")}; border: 2px solid ${({ theme }) => theme.colors.ink}; border-radius: ${({ theme }) => theme.radii.block}; font-size: 11px; line-height: 1.4;
-`;
-/** Aviso aparece antes de qualquer download para o uso de internet nunca ser surpresa. */
-export const DownloadNotice = styled.div`
-  display: grid; gap: 4px; margin-bottom: 17px; padding: 13px 14px; color: #151713; background: ${({ theme }) => theme.colors.yellow}; border: 2px solid #151713; border-radius: ${({ theme }) => theme.radii.block}; font-size: 11px; line-height: 1.45;
-  strong { font-size: 12px; }
-`;
-export const DownloadProgressLabel = styled.div`display: flex; justify-content: space-between; margin: 0 2px 7px; color: #151713; font-size: 11px; font-weight: 850;`;
-export const DownloadProgressBar = styled.div`height: 12px; overflow: hidden; margin-bottom: 17px; background: rgba(255, 253, 247, .6); border: 2px solid #151713; border-radius: ${({ theme }) => theme.radii.block};`;
-export const DownloadProgressFill = styled.div<{ $progress: number }>`width: ${({ $progress }) => `${$progress}%`}; height: 100%; background: ${({ theme }) => theme.colors.red}; transition: width .25s ease;`;
-export const SuggestionList = styled.div`display: grid; gap: 10px; margin-top: 20px;`;
-/** Bloco textual que explica a estratégia antes da lista operacional. */
-export const PlanGuidance = styled.section`
-  margin-top: 20px; padding: 14px 16px; color: #151713; background: rgba(255, 253, 247, .82); border: 2px solid #151713; border-radius: ${({ theme }) => theme.radii.block};
-`;
-/** Cabeçalho clicável mantém as dicas disponíveis sem ocupar a tela inteira. */
-export const PlanGuidanceToggle = styled.button<{ $open: boolean }>`
-  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0; color: inherit; background: transparent; border: 0; text-align: left;
-  strong { font-size: 13px; }
-  svg { flex: 0 0 auto; transform: rotate(${({ $open }) => ($open ? "180deg" : "0deg")}); transition: transform .2s ease; }
-`;
-/** Linhas de grid permitem abrir o conteúdo sem um salto brusco de layout. */
-export const PlanGuidanceContent = styled.div<{ $open: boolean }>`
-  display: grid; grid-template-rows: ${({ $open }) => ($open ? "1fr" : "0fr")}; opacity: ${({ $open }) => ($open ? 1 : 0)}; transition: grid-template-rows .22s ease, opacity .18s ease;
-  > div { min-height: 0; overflow: hidden; }
-  p { margin: 9px 0 0; font-size: 11px; line-height: 1.55; }
-  ul { display: grid; gap: 5px; margin: 11px 0 0; padding-left: 18px; font-size: 11px; line-height: 1.45; }
-`;
-export const SuggestionItem = styled.div<{ $selected?: boolean }>`
-  display: flex; align-items: flex-start; gap: 11px; padding: 12px; color: #151713; background: ${({ $selected }) => ($selected ? "rgba(255, 253, 247, .82)" : "rgba(21, 23, 19, .1)")}; border: 2px solid #151713; border-radius: ${({ theme }) => theme.radii.block};
-  input { width: 17px; height: 17px; margin-top: 2px; accent-color: #e44731; }
-  > div { min-width: 0; flex: 1; }
-`;
-/** Título e duração formam a camada resumida de cada sugestão. */
-export const SuggestionTitleRow = styled.div`
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
-  strong { min-width: 0; font-size: 12px; line-height: 1.3; }
-  small { flex: 0 0 auto; font-size: 9px; font-weight: 850; white-space: nowrap; }
-`;
-/** No desktop os detalhes ficam abertos; no celular podem ser recolhidos. */
-export const SuggestionDetails = styled.div<{ $open: boolean }>`
-  > div { min-height: 0; overflow: hidden; }
-
-  @media (max-width: 620px) {
-    display: grid; grid-template-rows: ${({ $open }) => ($open ? "1fr" : "0fr")}; opacity: ${({ $open }) => ($open ? 1 : 0)}; transition: grid-template-rows .22s ease, opacity .18s ease;
-  }
-`;
-/** O botão aparece só onde recolher detalhes economiza espaço de verdade. */
-export const SuggestionDetailsToggle = styled.button`
-  display: none; margin-top: 7px; padding: 0; color: #151713; background: transparent; border: 0; font-size: 9px; font-weight: 900; text-decoration: underline;
-  @media (max-width: 620px) { display: inline-flex; }
-`;
-export const SuggestionReason = styled.p`margin: 5px 0 0; font-size: 11px; line-height: 1.4;`;
-/** Links são construídos pela aplicação com termos da IA; recursos externos exigem internet. */
-export const ResourceLinks = styled.div`display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px;`;
-export const ResourceLink = styled.a`
-  padding: 6px 10px; color: #151713; background: ${({ theme }) => theme.colors.yellow}; border: 2px solid #151713; border-radius: ${({ theme }) => theme.radii.pill}; font-size: 9px; font-weight: 900; text-decoration: none;
-  &:hover { background: ${({ theme }) => theme.colors.red}; }
-`;
 export const Form = styled.form`display: grid; gap: 17px;`;
 export const FormField = styled.label`
   display: grid; gap: 7px; color: ${({ theme }) => theme.colors.ink}; font-size: 11px; font-weight: 850;
@@ -352,8 +260,7 @@ export const ResponsiveStyles = createGlobalStyle`
     ${PageTitle} { max-width: 360px; font-size: clamp(29px, 9vw, 36px); line-height: .94; letter-spacing: -2.4px; }
     ${TopActions} { width: 100%; justify-content: flex-start; gap: 8px; }
     ${TopActions} .action-label { display: none; }
-    ${TopActions} ${AssistantButton}, ${TopActions} ${PrimaryButton} { width: 40px; min-height: 40px; padding: 0; box-shadow: 2px 2px 0 ${({ theme }) => theme.colors.ink}; }
-    ${TopActions} ${AssistantButton} { border-radius: ${({ theme }) => theme.radii.round}; box-shadow: none; }
+    ${TopActions} ${PrimaryButton} { width: 40px; min-height: 40px; padding: 0; box-shadow: 2px 2px 0 ${({ theme }) => theme.colors.ink}; }
     ${IconButton} { width: 40px; height: 40px; }
 
     ${MetricsGrid} { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
@@ -365,13 +272,7 @@ export const ResponsiveStyles = createGlobalStyle`
     ${StatValue} { font-size: 31px; letter-spacing: -2px; }
     ${StatDescription} { margin-top: 6px; font-size: 9px; line-height: 1.35; }
 
-    ${AssistantPromo} { grid-template-columns: 36px minmax(0, 1fr); gap: 11px; margin-bottom: 12px; padding: 14px; }
-    ${AssistantPromoIcon} { width: 36px; height: 36px; }
-    ${AssistantPromo} h2 { font-size: 14px; line-height: 1.05; }
-    ${AssistantPromo} p { font-size: 9px; }
-    ${AssistantPromo} button { grid-column: 2; min-height: 35px; width: max-content; padding: 0 11px; font-size: 9px; }
-
-    ${ContentGrid}, ${StudyLayout} { gap: 12px; }
+    ${ContentGrid} { gap: 12px; }
     ${Panel}, ${ViewPanel} { min-height: 0; padding: 16px; }
     ${PanelHeading} { gap: 10px; margin-bottom: 15px; }
     ${PanelTitle} { font-size: 17px; }
@@ -387,41 +288,11 @@ export const ResponsiveStyles = createGlobalStyle`
     ${WelcomeActions} { gap: 9px; margin-top: 23px; }
     ${WelcomeActions} button { min-height: 38px; padding: 0 11px; font-size: 9px; }
 
-    ${PlannerCard} { padding: 14px; }
-    .planner-embedded { padding: 0; }
-    ${PlannerHeader} { gap: 10px; margin-bottom: 13px; }
-    ${PlannerHeader} > svg { width: 20px; height: 20px; }
-    ${PlannerHeader} h2 { gap: 6px; font-size: 17px; letter-spacing: -.8px; }
-    ${PlannerHeader} h2 svg { width: 17px; height: 17px; }
-    ${PlannerHeader} p { max-width: 320px; margin-top: 6px; font-size: 9px; line-height: 1.4; }
-    ${PlannerMeta} { margin-bottom: 5px; font-size: 8px; }
-    /**
-     * Duas colunas servem ao formulário do planejador, que tem campos curtos.
-     * Sem o escopo do ${PlannerCard} a regra vazava para os formulários do
-     * CreateModal e espremia "Como fazer" e "Área" lado a lado num modal estreito.
-     */
-    ${PlannerCard} ${Form} { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 9px; }
-    ${PlannerCard} ${Form} > ${FormField}:first-child, ${PlannerCard} ${Form} > ${PrimaryButton} { grid-column: 1 / -1; }
     ${FormField} { min-width: 0; gap: 5px; font-size: 9px; }
     ${FormField} input, ${FormField} textarea { min-width: 0; padding: 9px 10px; font-size: 10px; line-height: 1.35; }
     ${FormField} textarea { min-height: 58px; }
     ${Form} ${PrimaryButton} { min-height: 38px; box-shadow: 3px 3px 0 ${({ theme }) => theme.colors.ink}; font-size: 10px; }
-    ${PlannerStatus} { margin-top: 13px; padding: 8px 10px; font-size: 9px; }
-    ${PlanGuidance} { margin-top: 13px; padding: 12px; }
-    ${PlanGuidanceToggle} strong { font-size: 11px; }
-    ${SuggestionList} { gap: 8px; margin-top: 14px; }
-    ${SuggestionItem} { gap: 8px; padding: 10px; }
-    ${SuggestionItem} input { width: 15px; height: 15px; }
-    ${SuggestionTitleRow} strong { font-size: 10px; }
-    ${SuggestionReason} { font-size: 9px; line-height: 1.45; }
-    ${ResourceLinks} { margin-top: 8px; }
-
-    /**
-     * Ancorar no rodapé colocava o modal exatamente onde o teclado nasce, e
-     * \`position: fixed\` não encolhe com ele: o teclado cobria os campos. Com o
-     * modal centralizado, a área que sobra acima do teclado é justamente a que
-     * ele ocupa. O \`interactive-widget\` no index.html completa o conserto.
-     */
+    /** O teclado virtual reduz a área visível, então o modal fica centralizado. */
     ${ModalOverlay} { align-items: center; padding: 10px; }
     ${ModalContainer} { max-height: calc(100dvh - 20px); box-shadow: 5px 5px 0 ${({ theme }) => theme.colors.blue}; }
     ${ModalHeader} { align-items: center; padding: 12px 14px 10px; }
@@ -433,8 +304,6 @@ export const ResponsiveStyles = createGlobalStyle`
 
   /** Celulares muito estreitos voltam os campos auxiliares para uma coluna. */
   @media (max-width: 370px) {
-    ${PlannerCard} ${Form} { grid-template-columns: 1fr; }
-    ${PlannerCard} ${Form} > ${FormField}:first-child, ${PlannerCard} ${Form} > ${PrimaryButton} { grid-column: auto; }
     ${ModalOverlay} { padding: 6px; }
     ${ModalContainer} { max-height: calc(100dvh - 12px); }
   }

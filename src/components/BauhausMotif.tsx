@@ -16,13 +16,11 @@ const shapesByVariant: Record<BauhausMotifVariant, MotifShape[]> = {
     page: ["circle", "square", "bar", "ring", "dots", "cross"],
     hero: ["circle", "quarter", "bar", "ring", "triangle", "stripes"],
     sidebar: ["circle", "half", "dots"],
-    promo: ["circle", "arc", "cross"],
     modal: ["circle", "quarter", "dots"],
     panel: ["circle", "bar", "dots"],
     stat: ["ring", "cross"],
     /* Listas longas ocupam a esquerda, então o motivo se encosta no alto à direita. */
     journal: ["circle", "half", "cross"],
-    planner: ["circle", "arc", "cross"],
 };
 
 /**
