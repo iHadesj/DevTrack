@@ -6,24 +6,27 @@ import { themes, type ThemeMode } from "./theme";
 
 /** Componente raiz: guarda só o tema e entrega o resto da aplicação para a Home. */
 function App() {
-    const [mode, setMode] = useState<ThemeMode>("light");
-    const theme = themes[mode];
+  const [mode, setMode] = useState<ThemeMode>("light");
+  const theme = themes[mode];
 
-    /** Alterna o valor atual entre os dois temas disponíveis. */
-    const toggleTheme = () => setMode((current) => (current === "light" ? "dark" : "light"));
+  /** Alterna o valor atual entre os dois temas disponíveis. */
+  const toggleTheme = () =>
+    setMode((current) => (current === "light" ? "dark" : "light"));
 
-    /** Mantém a barra do navegador alinhada com a cor do tema ativo. */
-    useEffect(() => {
-        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.colors.canvas);
-    }, [theme]);
+  /** Mantém a barra do navegador alinhada com a cor do tema ativo. */
+  useEffect(() => {
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme.colors.canvas);
+  }, [theme]);
 
-    return (
-        <ThemeProvider theme={theme}>
-            <GlobalStyle />
-            <ResponsiveStyles />
-            <Home mode={mode} onToggleTheme={toggleTheme} />
-        </ThemeProvider>
-    );
+  return (
+    <ThemeProvider theme={theme}>
+      <GlobalStyle />
+      <ResponsiveStyles />
+      <Home mode={mode} onToggleTheme={toggleTheme} />
+    </ThemeProvider>
+  );
 }
 
 export default App;
